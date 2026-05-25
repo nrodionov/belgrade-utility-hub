@@ -1,9 +1,11 @@
 from fastapi import FastAPI, Request
 from fastapi.templating import Jinja2Templates
+from fastapi.staticfiles import StaticFiles
 import asyncpg, os, pytz
 from datetime import datetime, timedelta
 
 app = FastAPI()
+app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 DB_URL = os.getenv("DATABASE_URL")
 TZ = pytz.timezone("Europe/Belgrade")

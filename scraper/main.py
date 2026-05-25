@@ -38,8 +38,31 @@ def clean_text(text):
 def detect_municipality(text):
     if not text: return None
     t_low = text.lower()
+    
+    # Mapping of popular neighborhoods to official municipalities
+    NEIGHBORHOODS = {
+        "dorćol": "Stari grad", "дорчол": "Stari grad",
+        "senjak": "Savski venac", "сењак": "Savski venac",
+        "dedinje": "Savski venac", "дедиње": "Savski venac",
+        "savamala": "Savski venac", "савамала": "Savski venac",
+        "karaburma": "Palilula", "карабурма": "Palilula",
+        "borča": "Palilula", "борча": "Palilula",
+        "mirijevo": "Zvezdara", "миријево": "Zvezdara",
+        "banovo brdo": "Čukarica", "баново брдо": "Čukarica",
+        "železnik": "Čukarica", "железник": "Čukarica",
+        "bežanija": "Novi Beograd", "бежанија": "Novi Beograd",
+        "batajnica": "Zemun", "батајница": "Zemun",
+        "vidikovac": "Rakovica", "видиковац": "Rakovica"
+    }
+    
+    # 1. Check direct municipality names first
     for sr, en in sorted(zip(MUNICIPALITIES_SR, MUNICIPALITIES), key=lambda x: len(x[0]), reverse=True):
         if sr.lower() in t_low or en.lower() in t_low: return en
+    
+    # 2. Check neighborhoods mapping
+    for n_name, muni_en in NEIGHBORHOODS.items():
+        if n_name in t_low: return muni_en
+        
     return None
 
 async def translate_safe(text, target):

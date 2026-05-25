@@ -2,12 +2,14 @@
 <html lang="{{ current_lang }}" class="dark">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>{{ full_title }}</title>
     <meta name="description" content="Monitoring urbanih dešavanja u Beogradu: isključenja struje, vode, izmene saobraćaja i ekologija.">
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     
     <!-- OpenGraph / Facebook / Telegram -->
     <meta property="og:type" content="website">
-    <meta property="og:url" content="https://hm.ss.ru/">
+    <meta property="og:url" content="{{ request.url }}">
     <meta property="og:title" content="{{ full_title }}">
     <meta property="og:description" content="Pratite isključenja struje, vode, grejanja i izmene saobraćaja u realnom vremenu za sve opštine Beograda.">
     <meta property="og:image" content="https://cdn-icons-png.flaticon.com/512/3062/3062332.png">
@@ -24,11 +26,33 @@
         select { background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%2394a3b8' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e"); background-position: right 0.75rem center; background-repeat: no-repeat; background-size: 1.5em 1.5em; padding-right: 2.5rem; -webkit-appearance: none; appearance: none; }
         .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8); backdrop-filter: blur(8px); z-index: 100; align-items: center; justify-content: center; padding: 2rem; }
         .modal.active { display: flex; }
+        
+        /* Sidebar Mobile Overlay */
+        #mobile-overlay { display: none; }
+        #mobile-overlay.active { display: block; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 40; backdrop-filter: blur(4px); }
+        
+        @media (max-width: 1024px) {
+            aside { transform: translateX(-100%); transition: transform 0.3s ease; z-index: 50; }
+            aside.active { transform: translateX(0); }
+        }
     </style>
 </head>
-<body class="flex min-h-screen">
-    <aside class="w-72 h-screen fixed p-8 border-r border-white/5 flex flex-col z-50 bg-[#020617]">
-        <div class="flex items-center space-x-3 mb-10">
+<body class="flex min-h-screen flex-col lg:flex-row">
+    <!-- Mobile Header -->
+    <header class="lg:hidden w-full p-4 border-b border-white/5 bg-[#020617] sticky top-0 z-30 flex items-center justify-between">
+        <div class="flex items-center space-x-3">
+            <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-500/20"><i class="fas fa-city text-white text-sm"></i></div>
+            <h1 class="text-sm font-black tracking-tighter uppercase leading-none text-white">{{ ui.title }}</h1>
+        </div>
+        <button onclick="toggleSidebar()" class="w-10 h-10 flex items-center justify-center bg-white/5 rounded-xl text-slate-300 border border-white/10">
+            <i class="fas fa-bars"></i>
+        </button>
+    </header>
+
+    <div id="mobile-overlay" onclick="toggleSidebar()"></div>
+
+    <aside id="sidebar" class="w-72 h-screen fixed p-8 border-r border-white/5 flex flex-col bg-[#020617]">
+        <div class="hidden lg:flex items-center space-x-3 mb-10">
             <div class="w-12 h-12 bg-blue-600 rounded-2xl flex items-center justify-center shadow-xl shadow-blue-500/20"><i class="fas fa-city text-white text-2xl"></i></div>
             <h1 class="text-xl font-black tracking-tighter uppercase leading-none text-white">{{ ui.title }}</h1>
         </div>
@@ -54,23 +78,29 @@
             {% endfor %}
         </nav>
         <div class="mt-6 mb-6">
-            <button onclick="document.getElementById('sourcesModal').classList.add('active')" class="w-full flex items-center justify-center p-3 rounded-2xl bg-white/5 border border-white/10 text-[10px] font-bold uppercase tracking-widest text-slate-400 hover:bg-white/10 transition-all">
+            <button onclick="document.getElementById('sourcesModal').classList.add('active'); toggleSidebar(false);" class="w-full flex items-center justify-center p-3 rounded-2xl bg-white/5 border border-white/10 text-[10px] font-bold uppercase tracking-widest text-slate-400 hover:bg-white/10 transition-all">
                 <i class="fas fa-info-circle mr-2"></i> {{ ui.about }}
             </button>
         </div>
         <div class="mt-auto p-4 bg-blue-500/5 rounded-2xl border border-blue-500/10"><div class="text-[10px] text-slate-500 font-bold uppercase mb-1">{{ ui.last_upd }}</div><div class="text-sm font-bold text-blue-400">{{ now }}</div></div>
     </aside>
-    <main class="ml-72 flex-1 p-12 max-w-5xl">
-        <div class="mb-16">
-            <form method="get" action="/" id="muniForm"><input type="hidden" name="lang" value="{{ current_lang }}">{% if current_category %}<input type="hidden" name="category" value="{{ current_category }}">{% endif %}<select name="municipality" onchange="document.getElementById('muniForm').submit()" class="w-full bg-slate-900 border border-white/10 p-5 rounded-3xl outline-none focus:border-blue-500/50 transition-all cursor-pointer text-slate-300 font-bold shadow-2xl text-lg"><option value="">{{ ui.muni }}</option>{% for muni in municipalities %}<option value="{{ muni }}" {{ 'selected' if current_municipality == muni }}>{{ muni }}</option>{% endfor %}</select></form>
+
+    <main class="flex-1 p-4 md:p-8 lg:p-12 lg:ml-72 max-w-full lg:max-w-5xl">
+        <div class="mb-8 md:mb-16">
+            <form method="get" action="/" id="muniForm"><input type="hidden" name="lang" value="{{ current_lang }}">{% if current_category %}<input type="hidden" name="category" value="{{ current_category }}">{% endif %}<select name="municipality" onchange="document.getElementById('muniForm').submit()" class="w-full bg-slate-900 border border-white/10 p-4 md:p-5 rounded-2xl md:rounded-3xl outline-none focus:border-blue-500/50 transition-all cursor-pointer text-slate-300 font-bold shadow-2xl text-base md:text-lg"><option value="">{{ ui.muni }}</option>{% for muni in municipalities %}<option value="{{ muni }}" {{ 'selected' if current_municipality == muni }}>{{ muni }}</option>{% endfor %}</select></form>
         </div>
-        <div class="space-y-12">
+        <div class="space-y-6 md:space-y-12">
+            {% if not events %}
+            <div class="p-12 text-center text-slate-500 font-bold bg-white/5 rounded-[2rem] border border-white/5">
+                <i class="fas fa-calendar-day text-4xl mb-4 opacity-20"></i><br>{{ ui.empty }}
+            </div>
+            {% endif %}
             {% for event in events %}
-            <div class="card p-10 rounded-[3rem] relative overflow-hidden">
-                <div class="flex items-center justify-between mb-8">
+            <div class="card p-6 md:p-10 rounded-[2rem] md:rounded-[3rem] relative overflow-hidden">
+                <div class="flex flex-col md:flex-row md:items-center justify-between mb-6 md:mb-8 space-y-4 md:space-y-0">
                     <div class="flex items-center space-x-3">
-                        <div class="px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-widest {{ 'bg-blue-600 text-white' if event.is_today else 'bg-slate-800 text-slate-400' }}">{{ 'Сегодня' if event.is_today and current_lang == 'ru' else ('Danas' if event.is_today and (current_lang == 'srp' or current_lang == 'srl') else ('Today' if event.is_today else event.display_date)) }}</div>
-                        <span class="text-[11px] font-black px-4 py-1.5 rounded-full uppercase tracking-tighter
+                        <div class="px-3 md:px-4 py-1.5 rounded-full text-[10px] md:text-xs font-black uppercase tracking-widest {{ 'bg-blue-600 text-white' if event.is_today else 'bg-slate-800 text-slate-400' }}">{{ 'Сегодня' if event.is_today and current_lang == 'ru' else ('Danas' if event.is_today and (current_lang == 'srp' or current_lang == 'srl') else ('Today' if event.is_today else event.display_date)) }}</div>
+                        <span class="text-[9px] md:text-[11px] font-black px-3 md:px-4 py-1.5 rounded-full uppercase tracking-tighter
                             {% if event.category == 'electricity' %}bg-yellow-500/10 text-yellow-500
                             {% elif event.category == 'water' %}bg-blue-500/10 text-blue-400
                             {% elif event.category == 'transport' %}bg-indigo-500/10 text-indigo-400
@@ -78,15 +108,15 @@
                             {% elif event.category == 'heating' %}bg-orange-500/10 text-orange-400
                             {% elif event.category == 'ecology' %}bg-green-500/10 text-green-400
                             {% else %}bg-slate-500/10 text-slate-400{% endif %}">{{ event.category }}</span>
-                        <span class="text-slate-500 font-bold text-xs">{{ event.display_time }}</span>
+                        <span class="text-slate-500 font-bold text-[10px] md:text-xs">{{ event.display_time }}</span>
                     </div>
-                    {% if event.municipality %}<div class="text-[10px] bg-blue-500/10 text-blue-400 px-4 py-2 rounded-2xl border border-blue-500/20 font-black uppercase tracking-widest">{{ event.municipality }}</div>{% endif %}
+                    {% if event.municipality %}<div class="inline-block self-start md:self-auto text-[9px] md:text-[10px] bg-blue-500/10 text-blue-400 px-3 md:px-4 py-2 rounded-xl md:rounded-2xl border border-blue-500/20 font-black uppercase tracking-widest">{{ event.municipality }}</div>{% endif %}
                 </div>
-                <h2 class="text-3xl font-extrabold mb-8 leading-tight tracking-tight text-white">{{ event.title }}</h2>
-                <div class="desc-text mb-10 pl-8 border-l-4 border-blue-600/30">{{ event.description }}</div>
-                <div class="flex justify-between items-center pt-8 border-t border-white/5 text-sm">
-                    <div class="text-blue-400 font-bold"><i class="fas fa-map-location-dot mr-3 text-lg opacity-70"></i>{{ event.region }}</div>
-                    <a href="{{ event.source_url }}" target="_blank" class="bg-white/5 hover:bg-white/10 text-white px-6 py-3 rounded-2xl transition-all text-xs font-bold uppercase tracking-widest border border-white/5">{{ ui.source }} <i class="fas fa-external-link-alt ml-2 opacity-50"></i></a>
+                <h2 class="text-xl md:text-3xl font-extrabold mb-4 md:mb-8 leading-tight tracking-tight text-white">{{ event.title }}</h2>
+                <div class="desc-text text-sm md:text-base mb-6 md:mb-10 pl-4 md:pl-8 border-l-2 md:border-l-4 border-blue-600/30">{{ event.description }}</div>
+                <div class="flex flex-col md:flex-row justify-between items-start md:items-center pt-6 md:pt-8 border-t border-white/5 text-xs md:text-sm space-y-4 md:space-y-0">
+                    <div class="text-blue-400 font-bold flex items-center"><i class="fas fa-map-location-dot mr-3 text-lg opacity-70"></i>{{ event.region }}</div>
+                    <a href="{{ event.source_url }}" target="_blank" class="w-full md:w-auto text-center bg-white/5 hover:bg-white/10 text-white px-6 py-3 rounded-xl md:rounded-2xl transition-all text-[10px] md:text-xs font-bold uppercase tracking-widest border border-white/5">{{ ui.source }} <i class="fas fa-external-link-alt ml-2 opacity-50"></i></a>
                 </div>
             </div>
             {% endfor %}
@@ -94,22 +124,40 @@
     </main>
 
     <div id="sourcesModal" class="modal" onclick="this.classList.remove('active')">
-        <div class="bg-slate-900 border border-white/10 p-12 rounded-[3rem] max-w-2xl w-full relative" onclick="event.stopPropagation()">
-            <button onclick="document.getElementById('sourcesModal').classList.remove('active')" class="absolute top-8 right-8 text-slate-500 hover:text-white transition-colors text-2xl"><i class="fas fa-times"></i></button>
-            <h2 class="text-3xl font-black mb-6">{{ ui.src_title }}</h2>
-            <p class="text-slate-400 mb-8 font-semibold leading-relaxed">{{ ui.src_desc }}</p>
-            <div class="space-y-6">
+        <div class="bg-slate-900 border border-white/10 p-8 md:p-12 rounded-[2rem] md:rounded-[3rem] max-w-2xl w-full relative" onclick="event.stopPropagation()">
+            <button onclick="document.getElementById('sourcesModal').classList.remove('active')" class="absolute top-6 right-6 md:top-8 md:right-8 text-slate-500 hover:text-white transition-colors text-2xl"><i class="fas fa-times"></i></button>
+            <h2 class="text-2xl md:text-3xl font-black mb-4 md:6">{{ ui.src_title }}</h2>
+            <p class="text-slate-400 mb-6 md:8 font-semibold leading-relaxed text-sm md:text-base">{{ ui.src_desc }}</p>
+            <div class="space-y-4 md:space-y-6">
                 {% for label, desc, url in ui.src_list %}
                 <div class="flex items-start space-x-4">
-                    <div class="mt-1 w-2 h-2 rounded-full bg-blue-500 shadow-lg shadow-blue-500/50"></div>
+                    <div class="mt-1.5 w-2 h-2 rounded-full bg-blue-500 shadow-lg shadow-blue-500/50"></div>
                     <div>
-                        <a href="{{ url }}" target="_blank" class="text-white font-black text-sm uppercase tracking-wider mb-1 hover:text-blue-400 transition-colors block">{{ label }} <i class="fas fa-external-link-alt text-[10px] opacity-50 ml-1"></i></a>
-                        <div class="text-slate-400 text-sm leading-relaxed">{{ desc }}</div>
+                        <a href="{{ url }}" target="_blank" class="text-white font-black text-xs md:text-sm uppercase tracking-wider mb-1 hover:text-blue-400 transition-colors block">{{ label }} <i class="fas fa-external-link-alt text-[8px] md:text-[10px] opacity-50 ml-1"></i></a>
+                        <div class="text-slate-400 text-xs md:text-sm leading-relaxed">{{ desc }}</div>
                     </div>
                 </div>
                 {% endfor %}
             </div>
         </div>
     </div>
+
+    <script>
+        function toggleSidebar(force) {
+            const sidebar = document.getElementById('sidebar');
+            const overlay = document.getElementById('mobile-overlay');
+            const isActive = force !== undefined ? force : !sidebar.classList.contains('active');
+            
+            if (isActive) {
+                sidebar.classList.add('active');
+                overlay.classList.add('active');
+                document.body.style.overflow = 'hidden';
+            } else {
+                sidebar.classList.remove('active');
+                overlay.classList.remove('active');
+                document.body.style.overflow = '';
+            }
+        }
+    </script>
 </body>
 </html>
