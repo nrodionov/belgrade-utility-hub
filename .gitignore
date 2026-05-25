@@ -1,0 +1,25 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Database data
+db_data/
+
+# Docker
+.docker/
+
+# IDEs
+.vscode/
+.idea/
+
+# Logs
+*.log
+nohup.out

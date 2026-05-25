@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="{{ current_lang }}" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ full_title }}</title>
+    <meta name="description" content="Monitoring urbanih dešavanja u Beogradu: isključenja struje, vode, izmene saobraćaja i ekologija.">
+    
+    <!-- OpenGraph / Facebook / Telegram -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://hm.ss.ru/">
+    <meta property="og:title" content="{{ full_title }}">
+    <meta property="og:description" content="Pratite isključenja struje, vode, grejanja i izmene saobraćaja u realnom vremenu za sve opštine Beograda.">
+    <meta property="og:image" content="https://cdn-icons-png.flaticon.com/512/3062/3062332.png">
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap');
+        body { background-color: #020617; color: #f8fafc; font-family: 'Plus Jakarta Sans', sans-serif; }
+        .card { background: linear-gradient(165deg, #0f172a 0%, #020617 100%); border: 1px solid rgba(255,255,255,0.05); transition: all 0.4s ease; }
+        .card:hover { border-color: #3b82f6; transform: translateY(-4px); }
+        .desc-text { white-space: pre-line; line-height: 1.8; color: #94a3b8; }
+        .sidebar-link.active { background: #1d4ed8; color: #fff; box-shadow: 0 10px 15px -3px rgba(29, 78, 216, 0.3); }
+        select { background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%2394a3b8' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e"); background-position: right 0.75rem center; background-repeat: no-repeat; background-size: 1.5em 1.5em; padding-right: 2.5rem; -webkit-appearance: none; appearance: none; }
+        .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8); backdrop-filter: blur(8px); z-index: 100; align-items: center; justify-content: center; padding: 2rem; }
+        .modal.active { display: flex; }
+    </style>
+</head>
+<body class="flex min-h-screen">
+    <aside class="w-72 h-screen fixed p-8 border-r border-white/5 flex flex-col z-50 bg-[#020617]">
+        <div class="flex items-center space-x-3 mb-10">
+            <div class="w-12 h-12 bg-blue-600 rounded-2xl flex items-center justify-center shadow-xl shadow-blue-500/20"><i class="fas fa-city text-white text-2xl"></i></div>
+            <h1 class="text-xl font-black tracking-tighter uppercase leading-none text-white">{{ ui.title }}</h1>
+        </div>
+        <div class="mb-10 p-1 bg-slate-900 rounded-2xl border border-white/5 grid grid-cols-4 gap-1">
+            <a href="?lang=srl{% if current_category %}&category={{current_category}}{% endif %}{% if current_municipality %}&municipality={{current_municipality}}{% endif %}" class="text-center py-2 rounded-xl text-[9px] font-black transition-all {{ 'bg-blue-600 text-white shadow-lg' if current_lang == 'srl' else 'text-slate-500 hover:text-slate-300' }}">Lat</a>
+            <a href="?lang=srp{% if current_category %}&category={{current_category}}{% endif %}{% if current_municipality %}&municipality={{current_municipality}}{% endif %}" class="text-center py-2 rounded-xl text-[9px] font-black transition-all {{ 'bg-blue-600 text-white shadow-lg' if current_lang == 'srp' else 'text-slate-500 hover:text-slate-300' }}">Ћир</a>
+            <a href="?lang=ru{% if current_category %}&category={{current_category}}{% endif %}{% if current_municipality %}&municipality={{current_municipality}}{% endif %}" class="text-center py-2 rounded-xl text-[9px] font-black transition-all {{ 'bg-blue-600 text-white shadow-lg' if current_lang == 'ru' else 'text-slate-500 hover:text-slate-300' }}">Rus</a>
+            <a href="?lang=en{% if current_category %}&category={{current_category}}{% endif %}{% if current_municipality %}&municipality={{current_municipality}}{% endif %}" class="text-center py-2 rounded-xl text-[9px] font-black transition-all {{ 'bg-blue-600 text-white shadow-lg' if current_lang == 'en' else 'text-slate-500 hover:text-slate-300' }}">Eng</a>
+        </div>
+        <nav class="space-y-2 flex-1 overflow-y-auto pr-2">
+            {% for cat, icon, label, color in [
+                (None, 'layer-group', ui.all, 'blue'), 
+                ('traffic', 'car', ui.traffic, 'red'), 
+                ('electricity', 'plug', ui.elec, 'yellow'), 
+                ('water', 'faucet', ui.water, 'blue'), 
+                ('heating', 'fire', ui.heat, 'orange'),
+                ('ecology', 'leaf', ui.eco, 'green'),
+                ('transport', 'bus-alt', ui.trans, 'indigo')
+            ] %}
+            <a href="/?lang={{current_lang}}{% if cat %}&category={{cat}}{% endif %}{% if current_municipality %}&municipality={{current_municipality}}{% endif %}" class="sidebar-link flex items-center p-4 rounded-2xl transition-all font-semibold {{ 'active' if current_category == cat }}">
+                <i class="fas fa-{{icon}} mr-4 w-5 opacity-70 {{ 'text-'+color+'-500' if cat }}"></i>{{label}}
+            </a>
+            {% endfor %}
+        </nav>
+        <div class="mt-6 mb-6">
+            <button onclick="document.getElementById('sourcesModal').classList.add('active')" class="w-full flex items-center justify-center p-3 rounded-2xl bg-white/5 border border-white/10 text-[10px] font-bold uppercase tracking-widest text-slate-400 hover:bg-white/10 transition-all">
+                <i class="fas fa-info-circle mr-2"></i> {{ ui.about }}
+            </button>
+        </div>
+        <div class="mt-auto p-4 bg-blue-500/5 rounded-2xl border border-blue-500/10"><div class="text-[10px] text-slate-500 font-bold uppercase mb-1">{{ ui.last_upd }}</div><div class="text-sm font-bold text-blue-400">{{ now }}</div></div>
+    </aside>
+    <main class="ml-72 flex-1 p-12 max-w-5xl">
+        <div class="mb-16">
+            <form method="get" action="/" id="muniForm"><input type="hidden" name="lang" value="{{ current_lang }}">{% if current_category %}<input type="hidden" name="category" value="{{ current_category }}">{% endif %}<select name="municipality" onchange="document.getElementById('muniForm').submit()" class="w-full bg-slate-900 border border-white/10 p-5 rounded-3xl outline-none focus:border-blue-500/50 transition-all cursor-pointer text-slate-300 font-bold shadow-2xl text-lg"><option value="">{{ ui.muni }}</option>{% for muni in municipalities %}<option value="{{ muni }}" {{ 'selected' if current_municipality == muni }}>{{ muni }}</option>{% endfor %}</select></form>
+        </div>
+        <div class="space-y-12">
+            {% for event in events %}
+            <div class="card p-10 rounded-[3rem] relative overflow-hidden">
+                <div class="flex items-center justify-between mb-8">
+                    <div class="flex items-center space-x-3">
+                        <div class="px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-widest {{ 'bg-blue-600 text-white' if event.is_today else 'bg-slate-800 text-slate-400' }}">{{ 'Сегодня' if event.is_today and current_lang == 'ru' else ('Danas' if event.is_today and (current_lang == 'srp' or current_lang == 'srl') else ('Today' if event.is_today else event.display_date)) }}</div>
+                        <span class="text-[11px] font-black px-4 py-1.5 rounded-full uppercase tracking-tighter
+                            {% if event.category == 'electricity' %}bg-yellow-500/10 text-yellow-500
+                            {% elif event.category == 'water' %}bg-blue-500/10 text-blue-400
+                            {% elif event.category == 'transport' %}bg-indigo-500/10 text-indigo-400
+                            {% elif event.category == 'traffic' %}bg-red-500/10 text-red-500
+                            {% elif event.category == 'heating' %}bg-orange-500/10 text-orange-400
+                            {% elif event.category == 'ecology' %}bg-green-500/10 text-green-400
+                            {% else %}bg-slate-500/10 text-slate-400{% endif %}">{{ event.category }}</span>
+                        <span class="text-slate-500 font-bold text-xs">{{ event.display_time }}</span>
+                    </div>
+                    {% if event.municipality %}<div class="text-[10px] bg-blue-500/10 text-blue-400 px-4 py-2 rounded-2xl border border-blue-500/20 font-black uppercase tracking-widest">{{ event.municipality }}</div>{% endif %}
+                </div>
+                <h2 class="text-3xl font-extrabold mb-8 leading-tight tracking-tight text-white">{{ event.title }}</h2>
+                <div class="desc-text mb-10 pl-8 border-l-4 border-blue-600/30">{{ event.description }}</div>
+                <div class="flex justify-between items-center pt-8 border-t border-white/5 text-sm">
+                    <div class="text-blue-400 font-bold"><i class="fas fa-map-location-dot mr-3 text-lg opacity-70"></i>{{ event.region }}</div>
+                    <a href="{{ event.source_url }}" target="_blank" class="bg-white/5 hover:bg-white/10 text-white px-6 py-3 rounded-2xl transition-all text-xs font-bold uppercase tracking-widest border border-white/5">{{ ui.source }} <i class="fas fa-external-link-alt ml-2 opacity-50"></i></a>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </main>
+
+    <div id="sourcesModal" class="modal" onclick="this.classList.remove('active')">
+        <div class="bg-slate-900 border border-white/10 p-12 rounded-[3rem] max-w-2xl w-full relative" onclick="event.stopPropagation()">
+            <button onclick="document.getElementById('sourcesModal').classList.remove('active')" class="absolute top-8 right-8 text-slate-500 hover:text-white transition-colors text-2xl"><i class="fas fa-times"></i></button>
+            <h2 class="text-3xl font-black mb-6">{{ ui.src_title }}</h2>
+            <p class="text-slate-400 mb-8 font-semibold leading-relaxed">{{ ui.src_desc }}</p>
+            <div class="space-y-6">
+                {% for label, desc, url in ui.src_list %}
+                <div class="flex items-start space-x-4">
+                    <div class="mt-1 w-2 h-2 rounded-full bg-blue-500 shadow-lg shadow-blue-500/50"></div>
+                    <div>
+                        <a href="{{ url }}" target="_blank" class="text-white font-black text-sm uppercase tracking-wider mb-1 hover:text-blue-400 transition-colors block">{{ label }} <i class="fas fa-external-link-alt text-[10px] opacity-50 ml-1"></i></a>
+                        <div class="text-slate-400 text-sm leading-relaxed">{{ desc }}</div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</body>
+</html>

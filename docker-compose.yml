@@ -1,0 +1,56 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: belgrade_db
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-belgrade_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-belgrade_password}
+      POSTGRES_DB: ${POSTGRES_DB:-belgrade_monitor}
+      TZ: ${TZ:-Europe/Belgrade}
+    volumes:
+      - ./init_db:/docker-entrypoint-initdb.d
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-belgrade_user} -d ${POSTGRES_DB:-belgrade_monitor}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  scraper:
+    build: ./scraper
+    container_name: belgrade_scraper
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 512M
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      TZ: ${TZ:-Europe/Belgrade}
+    volumes:
+      - ./scraper:/app
+
+  web:
+    build: ./web
+    container_name: belgrade_web
+    restart: always
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      TZ: ${TZ:-Europe/Belgrade}
+    volumes:
+      - ./web:/app
+
+volumes:
+  db_data:
