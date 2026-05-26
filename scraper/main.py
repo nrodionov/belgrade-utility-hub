@@ -217,12 +217,13 @@ async def scrape_transport(session):
                         title = d_soup.find('h1')
                         title_text = title.get_text(strip=True) if title else "Transport alert"
                         
-                        description = ""
-                        for tag in d_soup.find_all(['div', 'article', 'p']):
-                            text = tag.get_text(separator=' ', strip=True)
-                            if len(text) > 200:
-                                description = text
-                                break
+                        # Surgery: Target the 'editor' class which contains clean news body
+                        content = d_soup.find('div', class_='editor')
+                        description = content.get_text(separator=' ', strip=True) if content else ""
+                        if not description:
+                            # Fallback if 'editor' is missing
+                            main_content = d_soup.find('div', class_='max-w-6xl')
+                            description = main_content.get_text(separator=' ', strip=True) if main_content else ""
                         
                         events.append({
                             'category': 'transport',
