@@ -87,14 +87,17 @@ def clean_text(text):
     lines = [l.strip() for l in text.split('\n') if l.strip()]
     return '\n'.join(lines)
 
-def detect_municipality(text):
-    if not text: return None
+def detect_municipalities(text):
+    if not text: return []
     t_low = text.lower()
-    for sr, en in sorted(zip(MUNICIPALITIES_SR, MUNICIPALITIES), key=lambda x: len(x[0]), reverse=True):
-        if sr.lower() in t_low or en.lower() in t_low: return en
+    found = set()
+    for sr, en in zip(MUNICIPALITIES_SR, MUNICIPALITIES):
+        if sr.lower() in t_low or en.lower() in t_low:
+            found.add(en)
     for typo, correct_en in TYPO_MAP.items():
-        if typo in t_low: return correct_en
-    return None
+        if typo in t_low:
+            found.add(correct_en)
+    return list(found)
 
 async def translate_safe(text, target):
     if not text: return ""
@@ -108,19 +111,24 @@ async def translate_safe(text, target):
 
 async def save_event(conn, event):
     try:
-        row = await conn.fetchrow("SELECT id, end_time, municipality FROM events WHERE hash_id = $1", event['hash_id'])
-        clean_sr = clean_text(event['description_sr'])
-        muni = event.get('municipality') or detect_municipality(event['title_sr'] + " " + clean_sr)
+        raw_sr = event['description_sr']
+        clean_sr = clean_text(raw_sr)
+        if not clean_sr and raw_sr:
+            clean_sr = raw_sr
+        
+        munis = event.get('municipalities') or detect_municipalities(event['title_sr'] + " " + clean_sr)
         end_t = event.get('end_time')
         if not end_t:
             if event['category'] in ['water', 'electricity', 'heating', 'ecology', 'connectivity']: end_t = event['start_time'].replace(hour=23, minute=59)
             else: end_t = event['start_time'] + timedelta(days=2)
 
+        row = await conn.fetchrow("SELECT id FROM events WHERE hash_id = $1", event['hash_id'])
+        
         if row:
             await conn.execute("""
                 UPDATE events SET 
                     end_time = $1,
-                    municipality = COALESCE(municipality, $2),
+                    municipality = $2,
                     title_sr = $3,
                     description_sr = $4,
                     title_sl = $5,
@@ -128,7 +136,7 @@ async def save_event(conn, event):
                     description_ru = $7,
                     description_en = $8
                 WHERE hash_id = $9
-            """, end_t, muni, event['title_sr'], clean_sr, to_latin(event['title_sr']), to_latin(clean_sr),
+            """, end_t, munis if munis else None, event['title_sr'], clean_sr, to_latin(event['title_sr']), to_latin(clean_sr),
                clean_text(await translate_safe(clean_sr, 'ru')), clean_text(await translate_safe(clean_sr, 'en')),
                event['hash_id'])
             return
@@ -143,7 +151,7 @@ async def save_event(conn, event):
             INSERT INTO events (category, title_sr, title_ru, title_en, title_sl, description_sr, description_ru, description_en, description_sl, region, municipality, start_time, end_time, source_url, hash_id)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
         """, event['category'], event['title_sr'], t_ru, t_en, t_sl, clean_sr, clean_text(raw_ru), clean_text(raw_en), desc_sl, 
-           event['region'], muni, event['start_time'], end_t, event['source_url'], event['hash_id'])
+           event['region'], munis if munis else None, event['start_time'], end_t, event['source_url'], event['hash_id'])
     except Exception as e: logging.error(f"Save error: {e}")
 
 async def scrape_electricity(session):
@@ -175,7 +183,7 @@ async def scrape_electricity(session):
                             h1, m1, h2, m2 = h_match.groups()
                             start_time = start_time.replace(hour=int(h1), minute=int(m1))
                             end_time = start_time.replace(hour=int(h2), minute=int(m2))
-                        events.append({'category': 'electricity', 'title_sr': f"Струја ({t_rng}): {m_sr}", 'description_sr': f"Општина: {m_sr}\nВреме: {t_rng}\nУлице: {strs}", 'region': "Beograd", 'municipality': detect_municipality(m_sr), 'start_time': start_time, 'end_time': end_time, 'source_url': url, 'hash_id': hashlib.sha256(f"elec:{strs[:50]}:{start_time.date()}".encode()).hexdigest()})
+                        events.append({'category': 'electricity', 'title_sr': f"Струја ({t_rng}): {m_sr}", 'description_sr': f"Општина: {m_sr}\nВреме: {t_rng}\nУлице: {strs}", 'region': "Beograd", 'municipalities': detect_municipalities(m_sr), 'start_time': start_time, 'end_time': end_time, 'source_url': url, 'hash_id': hashlib.sha256(f"elec:{strs[:50]}:{start_time.date()}".encode()).hexdigest()})
         except: pass
     return events
 
@@ -190,13 +198,13 @@ async def scrape_water(session):
                     t_text = toggle.get('data-title') or toggle.get_text(strip=True)
                     if not t_text: continue
                     content_div = toggle.find_next('div', class_='toggle_wrap')
-                    desc = content_div.get_text(strip=True) if content_div else ""
+                    desc = content_div.get_text(separator=' ', strip=True) if content_div else ""
                     s_date, e_date = parse_dates(t_text + " " + desc)
                     s_date = s_date or datetime.now(TZ)
                     if not e_date: e_date = s_date.replace(hour=23, minute=59)
                     clean_title = t_text
                     if re.match(r'^\d{1,2}[\./\s]+\d.[\./\s]+\d{4}\.?$', t_text): clean_title = f"Водовод: Радови {t_text}"
-                    events.append({'category': 'water', 'title_sr': clean_title, 'description_sr': desc, 'region': "Beograd", 'municipality': detect_municipality(t_text + " " + desc), 'start_time': s_date.replace(hour=8, minute=0), 'end_time': e_date.replace(hour=23, minute=59), 'source_url': url, 'hash_id': hashlib.sha256(f"water:{t_text}:{s_date.date()}".encode()).hexdigest()})
+                    events.append({'category': 'water', 'title_sr': clean_title, 'description_sr': desc, 'region': "Beograd", 'municipalities': detect_municipalities(t_text + " " + desc), 'start_time': s_date.replace(hour=8, minute=0), 'end_time': e_date.replace(hour=23, minute=59), 'source_url': url, 'hash_id': hashlib.sha256(f"water:{t_text}:{s_date.date()}".encode()).hexdigest()})
         except: pass
     return events
 
@@ -217,11 +225,9 @@ async def scrape_transport(session):
                         title = d_soup.find('h1')
                         title_text = title.get_text(strip=True) if title else "Transport alert"
                         
-                        # Surgery: Target the 'editor' class which contains clean news body
                         content = d_soup.find('div', class_='editor')
                         description = content.get_text(separator=' ', strip=True) if content else ""
                         if not description:
-                            # Fallback if 'editor' is missing
                             main_content = d_soup.find('div', class_='max-w-6xl')
                             description = main_content.get_text(separator=' ', strip=True) if main_content else ""
                         
@@ -230,7 +236,7 @@ async def scrape_transport(session):
                             'title_sr': title_text,
                             'description_sr': description,
                             'region': "Beograd",
-                            'municipality': detect_municipality(title_text + " " + description),
+                            'municipalities': detect_municipalities(title_text + " " + description),
                             'start_time': datetime.now(TZ),
                             'end_time': datetime.now(TZ) + timedelta(days=2),
                             'source_url': url,
@@ -262,12 +268,11 @@ async def scrape_traffic_official(session):
                             if s_in: s_date = s_in
                             if e_in: e_date = e_in
                     except: pass
-                    events.append({'category': 'traffic', 'title_sr': t_text, 'description_sr': post.select_one('.entry-content').get_text(strip=True), 'region': "Beograd", 'municipality': detect_municipality(t_text), 'start_time': s_date.replace(hour=7, minute=0), 'end_time': e_date, 'source_url': title_a['href'], 'hash_id': hashlib.sha256(f"traffic:{t_text}:{s_date.date()}".encode()).hexdigest()})
+                    events.append({'category': 'traffic', 'title_sr': t_text, 'description_sr': post.select_one('.entry-content').get_text(strip=True), 'region': "Beograd", 'municipalities': detect_municipalities(t_text), 'start_time': s_date.replace(hour=7, minute=0), 'end_time': e_date, 'source_url': title_a['href'], 'hash_id': hashlib.sha256(f"traffic:{t_text}:{s_date.date()}".encode()).hexdigest()})
         except: pass
     return events
 
 async def scrape_connectivity(session):
-    # Check SBB, MTS, Yettel news for internet-related keywords
     urls = [
         ("https://sbb.rs/podrska/vesti-i-informacije/", "SBB"),
         ("https://mts.rs/Vesti", "MTS"),
@@ -278,7 +283,6 @@ async def scrape_connectivity(session):
         try:
             async with session.get(url, headers=HEADERS, timeout=15) as resp:
                 soup = BeautifulSoup(await resp.text(), 'lxml')
-                # Generic news extraction
                 items = soup.find_all(['article', 'div'], class_=re.compile(r'post|news|item', re.I))
                 for item in items[:10]:
                     title_tag = item.find(['h2', 'h3', 'h4', 'a'], class_=re.compile(r'title', re.I))
@@ -294,7 +298,7 @@ async def scrape_connectivity(session):
                             'title_sr': f"Internet ({provider}): {t_text}",
                             'description_sr': f"Obaveštenje operatera {provider} o radovima ili smetnjama na mreži.",
                             'region': "Beograd",
-                            'municipality': detect_municipality(t_text),
+                            'municipalities': detect_municipalities(t_text),
                             'start_time': s_date,
                             'end_time': s_date + timedelta(days=1),
                             'source_url': link,
@@ -315,7 +319,7 @@ async def scrape_heating(session):
                 t_text, desc = title_h.get_text(strip=True), post.get_text(strip=True)
                 s_date, e_date = parse_dates(t_text + desc)
                 s_date = s_date or datetime.now(TZ)
-                events.append({'category': 'heating', 'title_sr': f"Грејање: {t_text}", 'description_sr': desc, 'region': "Beograd", 'municipality': detect_municipality(t_text + desc), 'start_time': s_date.replace(hour=6, minute=0), 'end_time': e_date or s_date.replace(hour=23, minute=59), 'source_url': url, 'hash_id': hashlib.sha256(f"heat:{t_text}:{s_date.date()}".encode()).hexdigest()})
+                events.append({'category': 'heating', 'title_sr': f"Грејање: {t_text}", 'description_sr': desc, 'region': "Beograd", 'municipalities': detect_municipalities(t_text + desc), 'start_time': s_date.replace(hour=6, minute=0), 'end_time': e_date or s_date.replace(hour=23, minute=59), 'source_url': url, 'hash_id': hashlib.sha256(f"heat:{t_text}:{s_date.date()}".encode()).hexdigest()})
     except: pass
     return events
 
@@ -329,7 +333,7 @@ async def scrape_air_quality(session):
             if status_tag:
                 val = status_tag.get_text(strip=True)
                 now = datetime.now(TZ)
-                events.append({'category': 'ecology', 'title_sr': f"Ваздух: {val}", 'description_sr': f"Квалитет ваздуха у Београду: {val}.", 'region': "Beograd", 'municipality': None, 'start_time': now, 'end_time': now + timedelta(hours=1), 'source_url': url, 'hash_id': hashlib.sha256(f"air:{now.strftime('%Y-%m-%d-%H')}".encode()).hexdigest()})
+                events.append({'category': 'ecology', 'title_sr': f"Ваздух: {val}", 'description_sr': f"Квалитет ваздуха у Београду: {val}.", 'region': "Beograd", 'municipalities': [], 'start_time': now, 'end_time': now + timedelta(hours=1), 'source_url': url, 'hash_id': hashlib.sha256(f"air:{now.strftime('%Y-%m-%d-%H')}".encode()).hexdigest()})
     except: pass
     return events
 
