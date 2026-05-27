@@ -95,7 +95,7 @@ async def index(request: Request, category: str = None, municipality: str = None
         base_query = "SELECT * FROM events WHERE (end_time >= $1 OR (end_time IS NULL AND start_time >= $1 - interval '5 days')) AND (start_time < $2)"
         args = [now, end_of_period]
         if category: base_query += f" AND category = ${len(args)+1}"; args.append(category)
-        if municipality: base_query += f" AND municipality = ${len(args)+1}"; args.append(municipality)
+        if municipality: base_query += f" AND ${len(args)+1} = ANY(municipality)"; args.append(municipality)
         base_query += " ORDER BY start_time ASC"
         rows = await conn.fetch(base_query, *args)
     events = []

@@ -41,7 +41,7 @@ CREATE TABLE public.events (
     title_en text,
     description_ru text,
     description_en text,
-    municipality text,
+    municipality text[],
     title_sl text,
     description_sl text
 );

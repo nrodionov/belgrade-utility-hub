@@ -110,7 +110,15 @@
                             {% else %}bg-slate-500/10 text-slate-400{% endif %}">{{ event.category }}</span>
                         <span class="text-slate-500 font-bold text-[10px] md:text-xs">{{ event.display_time }}</span>
                     </div>
-                    {% if event.municipality %}<div class="inline-block self-start md:self-auto text-[9px] md:text-[10px] bg-blue-500/10 text-blue-400 px-3 md:px-4 py-2 rounded-xl md:rounded-2xl border border-blue-500/20 font-black uppercase tracking-widest">{{ event.municipality }}</div>{% endif %}
+                    {% if event.municipality %}
+                    <div class="inline-block self-start md:self-auto text-[9px] md:text-[10px] bg-blue-500/10 text-blue-400 px-3 md:px-4 py-2 rounded-xl md:rounded-2xl border border-blue-500/20 font-black uppercase tracking-widest">
+                        {% if current_municipality and current_municipality in event.municipality %}
+                            {{ current_municipality }}
+                        {% else %}
+                            {{ event.municipality[0] }}
+                        {% endif %}
+                    </div>
+                    {% endif %}
                 </div>
                 <h2 class="text-xl md:text-3xl font-extrabold mb-4 md:mb-8 leading-tight tracking-tight text-white">{{ event.title }}</h2>
                 <div class="desc-text text-sm md:text-base mb-6 md:mb-10 pl-4 md:pl-8 border-l-2 md:border-l-4 border-blue-600/30" style="white-space: pre-wrap; word-break: break-word;">{{ event.description }}</div>
