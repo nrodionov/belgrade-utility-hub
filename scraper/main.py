@@ -346,7 +346,7 @@ async def run_scraper():
             results = await asyncio.gather(*tasks)
             for sublist in results:
                 for e in sublist: await save_event(conn, e)
-            await conn.execute("UPDATE system_stats SET val_ts = CURRENT_TIMESTAMP WHERE key = 'last_scrape'")
+            await conn.execute("""INSERT INTO system_stats (key, val_ts) VALUES ('last_scrape', CURRENT_TIMESTAMP) ON CONFLICT (key) DO UPDATE SET val_ts = CURRENT_TIMESTAMP""")
             logging.info("Cycle complete.")
             await asyncio.sleep(1800)
 
