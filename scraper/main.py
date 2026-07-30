@@ -143,7 +143,7 @@ def apply_translation_glossary(text, target):
         text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
     return text
 
-STREET_PREFIX_REGEX = r'(?i)\b(ulica|ulice|ul|ulica\.|ul\.|u ul\.|u ulici|bulevar|bulevara|bul\.|bul|trg|trga|prilaz|potez|naselje|naselja)\b\s+([A-ZŠĐČĆŽА-ЯЉЊЕЖЗИЈКЛМНОПРСТЋУФХЦЧЏШ][a-zšđčćžа-яљњежзијклмнопрстћуфхцчџш0-9\-\.\s]{2,40}?)(?=\s*(?:,|;|\.|\bdo\b|\bod\b|\bbilа\b|\bbr\b|\bbroj\b|\n|$))'
+STREET_PREFIX_REGEX = r'(?i)\b(ulica|ulice|ulica\.|ul\.|u ul\.|u ulici|bulevar|bulevara|bul\.|bul|trg|trga|prilaz|potez|naselje|naselja|у|u)\b\s+([A-ZŠĐČĆŽА-ЯЉЊЕЖЗИЈКЛМНОПРСТЋУФХЦЧЏШ][a-zšđčćžа-яљњежзијклмнопрстћуфхцчџш0-9\-\.\s]{2,50})'
 
 def mask_proper_nouns(text):
     if not text: return text, {}
@@ -159,13 +159,16 @@ def mask_proper_nouns(text):
     # 2. Protect streets and place names
     def replace_street(match):
         prefix = match.group(1)
-        street_name = match.group(2).strip()
+        street_raw = match.group(2).strip()
+        # Cut off at first punctuation mark or preposition if caught
+        street_name = re.split(r'[,;\.\n]|(\bdo\b|\bod\b)', street_raw)[0].strip()
+        if not street_name:
+            return match.group(0)
         idx = len(tokens)
         tag = f"[[STREET_{idx}]]"
-        # Transliterate street name to Latin script for consistent rendering across languages
         latin_street = to_latin(street_name)
         tokens[tag] = f"{prefix} {latin_street}"
-        return tag
+        return tag + match.group(0)[len(prefix) + 1 + len(street_name):]
 
     text = re.sub(STREET_PREFIX_REGEX, replace_street, text)
     return text, tokens
