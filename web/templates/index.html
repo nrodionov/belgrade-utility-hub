@@ -67,10 +67,10 @@
                 (None, 'layer-group', ui.all, 'blue'), 
                 ('electricity', 'plug', ui.elec, 'yellow'), 
                 ('water', 'faucet', ui.water, 'blue'), 
+                ('transport', 'bus-alt', ui.trans, 'indigo'),
                 ('traffic', 'car', ui.traffic, 'red'), 
                 ('heating', 'fire', ui.heat, 'orange'),
-                ('ecology', 'leaf', ui.eco, 'green'),
-                ('transport', 'bus-alt', ui.trans, 'indigo')
+                ('ecology', 'leaf', ui.eco, 'green')
             ] %}
             <a href="/?lang={{current_lang}}{% if cat %}&category={{cat}}{% endif %}{% if current_municipality %}&municipality={{current_municipality}}{% endif %}" class="sidebar-link flex items-center p-4 rounded-2xl transition-all font-semibold {{ 'active' if current_category == cat }}">
                 <i class="fas fa-{{icon}} mr-4 w-5 opacity-70 {{ 'text-'+color+'-500' if cat }}"></i>{{label}}
