@@ -143,17 +143,52 @@ def apply_translation_glossary(text, target):
         text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
     return text
 
+STREET_PREFIX_REGEX = r'(?i)\b(ulica|ulice|ul|ulica\.|ul\.|u ul\.|u ulici|bulevar|bulevara|bul\.|bul|trg|trga|prilaz|potez|naselje|naselja)\b\s+([A-ZŠĐČĆŽА-ЯЉЊЕЖЗИЈКЛМНОПРСТЋУФХЦЧЏШ][a-zšđčćžа-яљњежзијклмнопрстћуфхцчџш0-9\-\.\s]{2,40}?)(?=\s*(?:,|;|\.|\bdo\b|\bod\b|\bbilа\b|\bbr\b|\bbroj\b|\n|$))'
+
+def mask_proper_nouns(text):
+    if not text: return text, {}
+    tokens = {}
+    
+    # 1. Protect dates
+    dates = re.findall(r'\d{1,2}[\./\s]+\d{1,2}[\./\s]+\d{4}', text)
+    for i, d in enumerate(dates):
+        tag = f" [[DATE_{i}]] "
+        tokens[tag.strip()] = d
+        text = text.replace(d, tag)
+
+    # 2. Protect streets and place names
+    def replace_street(match):
+        prefix = match.group(1)
+        street_name = match.group(2).strip()
+        idx = len(tokens)
+        tag = f"[[STREET_{idx}]]"
+        # Transliterate street name to Latin script for consistent rendering across languages
+        latin_street = to_latin(street_name)
+        tokens[tag] = f"{prefix} {latin_street}"
+        return tag
+
+    text = re.sub(STREET_PREFIX_REGEX, replace_street, text)
+    return text, tokens
+
+def unmask_proper_nouns(text, tokens):
+    if not text or not tokens: return text
+    for tag, original_val in tokens.items():
+        # Replace tokens (case insensitive & handling possible spaces added by translator)
+        pattern = re.escape(tag).replace(r'\[\[', r'\[\s*\[').replace(r'\]\]', r'\]\s*\]')
+        text = re.sub(pattern, original_val, text, flags=re.IGNORECASE)
+    return text
+
 async def translate_safe(text, target):
     if not text: return ""
-    dates = re.findall(r'\d{1,2}[\./\s]+\d{1,2}[\./\s]+\d{4}', text)
-    for i, d in enumerate(dates): text = text.replace(d, f" [[{i}]] ")
+    masked_text, tokens = mask_proper_nouns(text)
     try:
-        translated = GoogleTranslator(source='auto', target=target).translate(text[:4500])
-        for i, d in enumerate(dates): translated = re.sub(rf'\[\[\s*{i}\s*\]\]', d, translated)
+        translated = GoogleTranslator(source='auto', target=target).translate(masked_text[:4500])
+        translated = unmask_proper_nouns(translated, tokens)
         translated = apply_translation_glossary(translated, target)
         return translated
     except:
-        return apply_translation_glossary(text, target)
+        unmasked_fallback = unmask_proper_nouns(masked_text, tokens)
+        return apply_translation_glossary(unmasked_fallback, target)
 
 async def save_event(conn, event):
     try:
