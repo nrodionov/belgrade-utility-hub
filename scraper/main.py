@@ -99,6 +99,50 @@ def detect_municipalities(text):
             found.add(correct_en)
     return list(found)
 
+# Glossary of Serbian utility and transport terms post-processing replacements
+RU_GLOSSARY = [
+    (r'\b(isključenja|isključenje|iskljucenja|iskljucenje)\b', 'отключения'),
+    (r'\b(planirana isključenja|planirana iskljucenja)\b', 'плановые отключения'),
+    (r'\b(kvar|kvarovi)\b', 'аварии/неполадки'),
+    (r'\b(radovi na mreži|radovi na mrezi)\b', 'ремонтные работы на сети'),
+    (r'\b(radovi)\b', 'работы'),
+    (r'\b(vodo snabdevanje|vodosnabdevanje|vode)\b', 'водоснабжение'),
+    (r'\b(električne energije|elektricne energije|struje)\b', 'электроэнергия'),
+    (r'\b(izmena režima|izmena rezima|izmena linija)\b', 'изменение маршрута/режима'),
+    (r'\b(stajalište|stajaliste)\b', 'остановка'),
+    (r'\b(ulica|ulice)\b', 'улица'),
+    (r'\b(potrošači|potrosaci)\b', 'потребители'),
+    (r'\b(u vremenskom intervalu)\b', 'в интервале времени'),
+    (r'\b(saobraćaj|saobracaj)\b', 'дорожное движение'),
+    (r'\b(zatvoreno za saobraćaj|zatvoreno za saobracaj)\b', 'закрыто для движения'),
+    (r'\b(obustava saobraćaja|obustava saobracaja)\b', 'приостановка движения'),
+    (r'\b(toplovod|toplovoda)\b', 'теплотрасса'),
+    (r'\b(grejanje)\b', 'отопление'),
+    (r'\b(bez vode)\b', 'без воды'),
+    (r'\b(bez struje)\b', 'без света'),
+    (r'\b(od\s+(\d{1,2}:\d{2})\s+do\s+(\d{1,2}:\d{2}))\b', r'с \2 до \3'),
+    (r'\b(do\s+(\d{1,2}:\d{2}))\b', r'до \2')
+]
+
+EN_GLOSSARY = [
+    (r'\b(isključenja|isključenje|iskljucenja|iskljucenje)\b', 'outages'),
+    (r'\b(planirana isključenja|planirana iskljucenja)\b', 'planned outages'),
+    (r'\b(radovi na mreži|radovi na mrezi)\b', 'network maintenance'),
+    (r'\b(izmena režima|izmena rezima)\b', 'route changes'),
+    (r'\b(stajalište|stajaliste)\b', 'bus stop'),
+    (r'\b(zatvoreno za saobraćaj|zatvoreno za saobracaj)\b', 'closed to traffic'),
+    (r'\b(vodo snabdevanje|vodosnabdevanje)\b', 'water supply'),
+    (r'\b(toplovod|toplovoda)\b', 'heating grid'),
+    (r'\b(grejanje)\b', 'heating')
+]
+
+def apply_translation_glossary(text, target):
+    if not text: return ""
+    glossary = RU_GLOSSARY if target == 'ru' else (EN_GLOSSARY if target == 'en' else [])
+    for pattern, replacement in glossary:
+        text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+    return text
+
 async def translate_safe(text, target):
     if not text: return ""
     dates = re.findall(r'\d{1,2}[\./\s]+\d{1,2}[\./\s]+\d{4}', text)
@@ -106,8 +150,10 @@ async def translate_safe(text, target):
     try:
         translated = GoogleTranslator(source='auto', target=target).translate(text[:4500])
         for i, d in enumerate(dates): translated = re.sub(rf'\[\[\s*{i}\s*\]\]', d, translated)
+        translated = apply_translation_glossary(translated, target)
         return translated
-    except: return text
+    except:
+        return apply_translation_glossary(text, target)
 
 async def save_event(conn, event):
     try:
