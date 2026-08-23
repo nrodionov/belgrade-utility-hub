@@ -16,8 +16,6 @@ services:
 
   web:
     container_name: belgrade_web_hm
-    ports:
-      - "127.0.0.1:8002:8000"
     depends_on:
       db:
         condition: service_healthy
