@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  db:
+    container_name: belgrade_db_hm
+    volumes:
+      - db_data_hm:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-belgrade_user} -d $${POSTGRES_DB:-belgrade_monitor}"]
+
+  scraper:
+    container_name: belgrade_scraper_hm
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    container_name: belgrade_web_hm
+    ports:
+      - "127.0.0.1:8002:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  db_data_hm:
