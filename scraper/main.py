@@ -105,9 +105,15 @@ async def translate_safe(text, target):
     for i, d in enumerate(dates): text = text.replace(d, f" [[{i}]] ")
     try:
         translated = GoogleTranslator(source='auto', target=target).translate(text[:4500])
+        # Check if Google returned an error page instead of translation
+        if translated and ("Error 500" in translated or "Server Error" in translated or "That's an error" in translated):
+            logging.warning(f"Google Translate returned error page, using original text for {target}")
+            return text
         for i, d in enumerate(dates): translated = re.sub(rf'\[\[\s*{i}\s*\]\]', d, translated)
         return translated
-    except: return text
+    except Exception as e:
+        logging.warning(f"Translation failed for {target}: {e}")
+        return text
 
 async def save_event(conn, event):
     try:
