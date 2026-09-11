@@ -3,5 +3,5 @@ beautifulsoup4
 asyncpg
 pytz
 lxml
-deep-translator
+groq
 cyrtranslit

@@ -2,10 +2,14 @@ import asyncio, aiohttp, asyncpg, hashlib, logging, os, pytz, re
 import cyrtranslit
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
-from deep_translator import GoogleTranslator
+from groq import Groq
 
 DB_URL = os.getenv("DATABASE_URL")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 TZ = pytz.timezone("Europe/Belgrade")
+
+# Initialize Groq client
+groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"}
 
 MUNICIPALITIES = ["Barajevo", "Čukarica", "Grocka", "Lazarevac", "Mladenovac", "Novi Beograd", "Obrenovac", "Palilula", "Rakovica", "Savski venac", "Sopot", "Stari grad", "Surčin", "Voždovac", "Vračar", "Zemun", "Zvezdara"]
@@ -100,19 +104,60 @@ def detect_municipalities(text):
     return list(found)
 
 async def translate_safe(text, target):
+    """Translate text using Groq API with LLM-based translation that preserves toponyms."""
     if not text: return ""
+
+    # Protect dates from translation
     dates = re.findall(r'\d{1,2}[\./\s]+\d{1,2}[\./\s]+\d{4}', text)
-    for i, d in enumerate(dates): text = text.replace(d, f" [[{i}]] ")
+    for i, d in enumerate(dates):
+        text = text.replace(d, f" [[DATE{i}]] ")
+
+    # Check if Groq client is available
+    if not groq_client:
+        logging.warning("Groq API key not set, returning original text")
+        return text
+
     try:
-        translated = GoogleTranslator(source='auto', target=target).translate(text[:4500])
-        # Check if Google returned an error page instead of translation
-        if translated and ("Error 500" in translated or "Server Error" in translated or "That's an error" in translated):
-            logging.warning(f"Google Translate returned error page, using original text for {target}")
-            return text
-        for i, d in enumerate(dates): translated = re.sub(rf'\[\[\s*{i}\s*\]\]', d, translated)
+        # Map target language codes
+        lang_names = {'ru': 'Russian', 'en': 'English'}
+        target_lang = lang_names.get(target, target)
+
+        # Create translation prompt that preserves toponyms
+        system_prompt = f"""You are a professional translator from Serbian to {target_lang}.
+
+CRITICAL RULES:
+1. Keep ALL place names, street names, municipality names, and geographic locations EXACTLY as they appear in Serbian
+2. DO NOT translate: Barajevo, Čukarica, Grocka, Lazarevac, Mladenovac, Novi Beograd, Obrenovac, Palilula, Rakovica, Savski venac, Sopot, Stari grad, Surčin, Voždovac, Vračar, Zemun, Zvezdara
+3. DO NOT translate street names (ulica, bulevar, trg, etc. - keep the full street name)
+4. DO NOT translate building names, landmark names
+5. Only translate the description of events, problems, and actions
+6. Preserve date placeholders like [[DATE0]]
+7. Keep line breaks and formatting
+
+Translate ONLY the event description, not the places."""
+
+        response = groq_client.chat.completions.create(
+            model="llama-3.1-70b-versatile",  # Fast and high quality
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": text[:4000]}  # Limit to avoid token limits
+            ],
+            temperature=0.3,  # Lower temperature for more consistent translations
+            max_tokens=2000
+        )
+
+        translated = response.choices[0].message.content.strip()
+
+        # Restore dates
+        for i, d in enumerate(dates):
+            translated = re.sub(rf'\[\[DATE{i}\]\]', d, translated, flags=re.IGNORECASE)
+
+        logging.info(f"Translation to {target} successful via Groq")
         return translated
+
     except Exception as e:
-        logging.warning(f"Translation failed for {target}: {e}")
+        logging.error(f"Groq translation failed for {target}: {e}")
+        # Fallback: return original text
         return text
 
 async def save_event(conn, event):
