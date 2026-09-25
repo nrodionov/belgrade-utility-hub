@@ -21,7 +21,7 @@ A high-fidelity urban monitoring dashboard for Belgrade, Serbia. Automatically t
 - **Backend**: Python (Asyncio), aiohttp, BeautifulSoup4.
 - **Database**: PostgreSQL 15.
 - **Infrastructure**: Docker Compose, Nginx Reverse Proxy.
-- **Translation**: Deep Translator (Google API) with intelligent chunking.
+- **Translation**: Groq API (Llama/Qwen models) with intelligent chunking.
 
 ## 🚦 Quick Start
 
