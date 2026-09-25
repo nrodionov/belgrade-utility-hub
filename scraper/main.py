@@ -1,8 +1,9 @@
-import asyncio, aiohttp, asyncpg, hashlib, logging, os, pytz, re
+import asyncio, aiohttp, asyncpg, hashlib, logging, os, pytz, re, json
 import cyrtranslit
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
 from groq import Groq
+
 
 DB_URL = os.getenv("DATABASE_URL")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -10,7 +11,7 @@ TZ = pytz.timezone("Europe/Belgrade")
 
 # Initialize Groq client
 groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
-HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"}
+HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"}
 
 MUNICIPALITIES = ["Barajevo", "Čukarica", "Grocka", "Lazarevac", "Mladenovac", "Novi Beograd", "Obrenovac", "Palilula", "Rakovica", "Savski venac", "Sopot", "Stari grad", "Surčin", "Voždovac", "Vračar", "Zemun", "Zvezdara"]
 MUNICIPALITIES_SR = ["Барајево", "Чукарица", "Гроцка", "Лазаревац", "Младеновац", "Нови Београд", "Обреновац", "Палилула", "Раковица", "Савски венац", "Сопот", "Стари град", "Сурчин", "Вождовац", "Врачар", "Земун", "Звездара"]
@@ -103,62 +104,69 @@ def detect_municipalities(text):
             found.add(correct_en)
     return list(found)
 
-async def translate_safe(text, target):
-    """Translate text using Groq API with LLM-based translation that preserves toponyms."""
-    if not text: return ""
+def log_rate_limits(response):
+    if response and hasattr(response, 'headers'):
+        h = response.headers
+        logging.info(f"Rate Limit Status: Tokens-Remaining={h.get('x-ratelimit-remaining-tokens')}, Requests-Remaining={h.get('x-ratelimit-remaining-requests')}, Reset={h.get('x-ratelimit-reset-tokens')}")
+
+async def translate_both(text, model="qwen/qwen3.8-27b"):
+    """Translate text into Russian and English in a single Groq API call with fallback support."""
+    if not text: return "", ""
+
+    # Specific fix for Air Quality to avoid hallucinations
+    if "Ваздух:" in text or "Vazduh:" in text:
+        mapping = {"NIZAK!": ("НИЗКИЙ!", "Low"), "SREDNJI!": ("СРЕДНИЙ!", "Moderate"), "VISOK!": ("ВЫСОКИЙ!", "High")}
+        for sr_val, (ru_val, en_val) in mapping.items():
+            if sr_val in text:
+                t_ru = text.replace("Ваздух:", "Воздух:").replace("Vazduh:", "Воздух:").replace(sr_val, ru_val)
+                t_en = text.replace("Ваздух:", "Air Quality:").replace("Vazduh:", "Air Quality:").replace(sr_val, en_val)
+                return t_ru, t_en
 
     # Protect dates from translation
     dates = re.findall(r'\d{1,2}[\./\s]+\d{1,2}[\./\s]+\d{4}', text)
     for i, d in enumerate(dates):
         text = text.replace(d, f" [[DATE{i}]] ")
 
-    # Check if Groq client is available
     if not groq_client:
-        logging.warning("Groq API key not set, returning original text")
-        return text
+        return text, text
 
     try:
-        # Map target language codes
-        lang_names = {'ru': 'Russian', 'en': 'English'}
-        target_lang = lang_names.get(target, target)
-
-        # Create translation prompt that preserves toponyms
-        system_prompt = f"""You are a professional translator from Serbian to {target_lang}.
+        system_prompt = """You are a professional translator. 
+Translate the provided Serbian text into BOTH Russian and English.
 
 CRITICAL RULES:
-1. Keep ALL place names, street names, municipality names, and geographic locations EXACTLY as they appear in Serbian
-2. DO NOT translate: Barajevo, Čukarica, Grocka, Lazarevac, Mladenovac, Novi Beograd, Obrenovac, Palilula, Rakovica, Savski venac, Sopot, Stari grad, Surčin, Voždovac, Vračar, Zemun, Zvezdara
-3. DO NOT translate street names (ulica, bulevar, trg, etc. - keep the full street name)
-4. DO NOT translate building names, landmark names
-5. Only translate the description of events, problems, and actions
-6. Preserve date placeholders like [[DATE0]]
-7. Keep line breaks and formatting
-
-Translate ONLY the event description, not the places."""
+1. Keep ALL place names, street names, municipality names EXACTLY as they appear in Serbian.
+2. Return ONLY valid JSON: {"ru": "...", "en": "..."}
+3. Translate ONLY the description, not the locations.
+"""
 
         response = groq_client.chat.completions.create(
-            model="llama-3.1-70b-versatile",  # Fast and high quality
+            model=model,
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": text[:4000]}  # Limit to avoid token limits
+                {"role": "user", "content": text[:4000]}
             ],
-            temperature=0.3,  # Lower temperature for more consistent translations
-            max_tokens=2000
+            temperature=0.3,
+            max_tokens=2048,
+            response_format={"type": "json_object"}
         )
 
-        translated = response.choices[0].message.content.strip()
+        result = json.loads(response.choices[0].message.content.strip())
+        t_ru, t_en = result.get('ru'), result.get('en')
+        
+        if not t_ru or not t_en:
+            raise ValueError("Translation returned empty fields")
 
-        # Restore dates
         for i, d in enumerate(dates):
-            translated = re.sub(rf'\[\[DATE{i}\]\]', d, translated, flags=re.IGNORECASE)
+            t_ru = re.sub(rf'\[\[DATE{i}\]\]', d, t_ru, flags=re.IGNORECASE)
+            t_en = re.sub(rf'\[\[DATE{i}\]\]', d, t_en, flags=re.IGNORECASE)
 
-        logging.info(f"Translation to {target} successful via Groq")
-        return translated
+        return t_ru, t_en
 
     except Exception as e:
-        logging.error(f"Groq translation failed for {target}: {e}")
-        # Fallback: return original text
-        return text
+        if hasattr(e, 'response') and e.response is not None:
+            log_rate_limits(e.response)
+        raise e
 
 async def save_event(conn, event):
     try:
@@ -183,25 +191,18 @@ async def save_event(conn, event):
                     title_sr = $3,
                     description_sr = $4,
                     title_sl = $5,
-                    description_sl = $6,
-                    description_ru = $7,
-                    description_en = $8
-                WHERE hash_id = $9
+                    description_sl = $6
+                WHERE hash_id = $7
             """, end_t, munis if munis else None, event['title_sr'], clean_sr, to_latin(event['title_sr']), to_latin(clean_sr),
-               clean_text(await translate_safe(clean_sr, 'ru')), clean_text(await translate_safe(clean_sr, 'en')),
                event['hash_id'])
             return
 
         logging.info(f"Saving new: {event['category']} - {event['title_sr'][:30]}")
-        t_ru, t_en = await translate_safe(event['title_sr'], 'ru'), await translate_safe(event['title_sr'], 'en')
-        t_sl = to_latin(event['title_sr'])
-        raw_ru, raw_en = await translate_safe(clean_sr, 'ru'), await translate_safe(clean_sr, 'en')
-        desc_sl = to_latin(clean_sr)
         
         await conn.execute("""
-            INSERT INTO events (category, title_sr, title_ru, title_en, title_sl, description_sr, description_ru, description_en, description_sl, region, municipality, start_time, end_time, source_url, hash_id)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-        """, event['category'], event['title_sr'], t_ru, t_en, t_sl, clean_sr, clean_text(raw_ru), clean_text(raw_en), desc_sl, 
+            INSERT INTO events (category, title_sr, title_sl, description_sr, description_sl, region, municipality, start_time, end_time, source_url, hash_id, translation_status, retry_count)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'pending', 0)
+        """, event['category'], event['title_sr'], to_latin(event['title_sr']), clean_sr, to_latin(clean_sr), 
            event['region'], munis if munis else None, event['start_time'], end_t, event['source_url'], event['hash_id'])
     except Exception as e: logging.error(f"Save error: {e}")
 
@@ -264,14 +265,22 @@ async def scrape_transport(session):
     list_url = "https://www.bgprevoz.rs/linije/aktuelne-izmene"
     try:
         async with session.get(list_url, headers=HEADERS, timeout=30) as resp:
+            if resp.status != 200:
+                logging.error(f"Transport list {list_url} returned status {resp.status}")
+                return events
             soup = BeautifulSoup(await resp.text(), 'lxml')
             links = set()
             for a in soup.find_all('a', href=re.compile(r'/linije/aktuelne-izmene/\d+$')):
-                links.add(a['href'])
+                url = a['href']
+                if not url.startswith('http'): url = "https://www.bgprevoz.rs" + url
+                links.add(url)
             
             for url in links:
                 try:
                     async with session.get(url, headers=HEADERS, timeout=30) as d_resp:
+                        if d_resp.status != 200:
+                            logging.error(f"Transport article {url} returned status {d_resp.status}")
+                            continue
                         d_soup = BeautifulSoup(await d_resp.text(), 'lxml')
                         title = d_soup.find('h1')
                         title_text = title.get_text(strip=True) if title else "Transport alert"
@@ -294,8 +303,8 @@ async def scrape_transport(session):
                             'hash_id': hashlib.sha256(url.encode()).hexdigest()
                         })
                 except Exception as e:
-                    logging.error(f"Error parsing transport article {url}: {e}")
-    except Exception as e: logging.error(f"Transport list error: {e}")
+                    logging.error(f"Error parsing transport article {url}: {type(e).__name__}: {e}")
+    except Exception as e: logging.error(f"Transport list error: {type(e).__name__}: {e}")
     return events
 
 async def scrape_traffic_official(session):
@@ -388,17 +397,62 @@ async def scrape_air_quality(session):
     except: pass
     return events
 
+async def run_translator():
+    conn = await asyncpg.connect(DB_URL)
+    models = ["qwen/qwen3.8-27b", "openai/gpt-oss-120b"]
+    
+    while True:
+        # Get pending events or failed events with retries < 3
+        events = await conn.fetch("SELECT id, title_sr, description_sr FROM events WHERE translation_status IN ('pending', 'failed') AND retry_count < 3 LIMIT 10")
+        
+        for e in events:
+            if len(e['description_sr'] or "") > 2000:
+                logging.info(f"Skipping translation for event {e['id']} due to length (>2000 chars)")
+                await conn.execute("UPDATE events SET title_ru=$1, title_en=$2, description_ru=$3, description_en=$4, translation_status='success' WHERE id=$5", e['title_sr'], e['title_sr'], e['description_sr'], e['description_sr'], e['id'])
+                continue
+            logging.info(f"Translating event {e['id']}")
+            success = False
+            
+            for model in models:
+                try:
+                    t_ru, t_en = await translate_both(e['title_sr'], model=model)
+                    d_ru, d_en = await translate_both(e['description_sr'], model=model)
+                    
+                    if t_ru and t_en and d_ru and d_en:
+                        await conn.execute("UPDATE events SET title_ru=$1, title_en=$2, description_ru=$3, description_en=$4, translation_status='success', retry_count=retry_count+1 WHERE id=$5", t_ru, t_en, d_ru, d_en, e['id'])
+                        logging.info(f"Success with model {model} for event {e['id']}")
+                        success = True
+                        break # Exit model loop on success
+                    else:
+                        raise Exception("Empty translation")
+                except Exception as ex:
+                    err_msg = str(ex)
+                    if "429" in err_msg or "rate_limit" in err_msg:
+                        logging.warning(f"Model {model} rate limited, trying next...")
+                        continue # Try next model
+                    else:
+                        logging.error(f"Translation error with {model}: {ex}")
+            
+            if not success:
+                await conn.execute("UPDATE events SET translation_status='failed', retry_count=retry_count+1 WHERE id=$1", e['id'])
+                logging.info(f"Could not translate event {e['id']} with any model currently, will retry next cycle.")
+        
+        await asyncio.sleep(60) # 1 minute interval
+
 async def run_scraper():
     conn = await asyncpg.connect(DB_URL)
     async with aiohttp.ClientSession() as session:
         while True:
-            logging.info("Cycle starting...")
+            logging.info("Scrape cycle starting...")
             tasks = [scrape_electricity(session), scrape_water(session), scrape_transport(session), scrape_traffic_official(session), scrape_heating(session), scrape_air_quality(session), scrape_connectivity(session)]
             results = await asyncio.gather(*tasks)
             for sublist in results:
                 for e in sublist: await save_event(conn, e)
             await conn.execute("""INSERT INTO system_stats (key, val_ts) VALUES ('last_scrape', CURRENT_TIMESTAMP) ON CONFLICT (key) DO UPDATE SET val_ts = CURRENT_TIMESTAMP""")
-            logging.info("Cycle complete.")
-            await asyncio.sleep(1800)
+            logging.info("Scrape cycle complete.")
+            await asyncio.sleep(600) # 10 minutes interval
 
-if __name__ == "__main__": asyncio.run(run_scraper())
+if __name__ == "__main__":
+    loop = asyncio.get_event_loop()
+    loop.create_task(run_translator())
+    loop.run_until_complete(run_scraper())
