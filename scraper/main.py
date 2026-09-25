@@ -131,13 +131,14 @@ async def translate_both(text, model="qwen/qwen3.8-27b"):
         return text, text
 
     try:
-        system_prompt = """You are a professional translator. 
-Translate the provided Serbian text into BOTH Russian and English.
+        system_prompt = """You are a professional translator from Serbian to Russian and English. 
+Translate the provided text into BOTH Russian and English.
 
 CRITICAL RULES:
-1. Keep ALL place names, street names, municipality names EXACTLY as they appear in Serbian.
-2. Return ONLY valid JSON: {"ru": "...", "en": "..."}
-3. Translate ONLY the description, not the locations.
+1. Keep ALL place names, street names, and municipality names EXACTLY as they appear in Serbian (do not translate or alter them).
+2. GRAMMAR RULE FOR RUSSIAN: When mentioning streets or locations ending in adjective forms (e.g., Surčinskoj, Vlajkovićevoj, Kraljevačkoj), use the Russian preposition "на" (e.g., "на Сурчинској", "на Влајковићевoj") instead of "в".
+3. Return ONLY valid JSON: {"ru": "...", "en": "..."}
+4. Translate ONLY the general description of events/actions, preserving topological and street references in their native form.
 """
 
         response = groq_client.chat.completions.create(
