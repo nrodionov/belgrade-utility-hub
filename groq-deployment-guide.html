@@ -1,0 +1,552 @@
+<title>Groq API Deployment Guide</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root {
+  --bg: #ffffff;
+  --surface: #f8f9fa;
+  --surface-elevated: #ffffff;
+  --text: #1a1a1a;
+  --text-muted: #6b7280;
+  --border: #e5e7eb;
+  --accent: #3b82f6;
+  --accent-hover: #2563eb;
+  --success: #10b981;
+  --success-bg: #d1fae5;
+  --warning: #f59e0b;
+  --warning-bg: #fef3c7;
+  --danger: #ef4444;
+  --code-bg: #f3f4f6;
+  --code-border: #e5e7eb;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0a0a0a;
+    --surface: #1a1a1a;
+    --surface-elevated: #262626;
+    --text: #f5f5f5;
+    --text-muted: #a3a3a3;
+    --border: #2a2a2a;
+    --accent: #60a5fa;
+    --accent-hover: #3b82f6;
+    --success: #34d399;
+    --success-bg: #064e3b;
+    --warning: #fbbf24;
+    --warning-bg: #78350f;
+    --danger: #f87171;
+    --code-bg: #1f1f1f;
+    --code-border: #333333;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #0a0a0a;
+  --surface: #1a1a1a;
+  --surface-elevated: #262626;
+  --text: #f5f5f5;
+  --text-muted: #a3a3a3;
+  --border: #2a2a2a;
+  --accent: #60a5fa;
+  --accent-hover: #3b82f6;
+  --success: #34d399;
+  --success-bg: #064e3b;
+  --warning: #fbbf24;
+  --warning-bg: #78350f;
+  --danger: #f87171;
+  --code-bg: #1f1f1f;
+  --code-border: #333333;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 24px 20px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.container {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+header {
+  margin-bottom: 40px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--border);
+}
+
+h1 {
+  margin: 0 0 8px;
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-wrap: balance;
+}
+
+.subtitle {
+  color: var(--text-muted);
+  font-size: 16px;
+  margin: 0;
+}
+
+h2 {
+  margin: 32px 0 16px;
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+h3 {
+  margin: 24px 0 12px;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 16px;
+}
+
+.badge.success {
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+  margin-bottom: 24px;
+}
+
+.card.elevated {
+  background: var(--surface-elevated);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.steps {
+  counter-reset: step;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.step {
+  counter-increment: step;
+  position: relative;
+  padding-left: 48px;
+  margin-bottom: 24px;
+}
+
+.step::before {
+  content: counter(step);
+  position: absolute;
+  left: 0;
+  top: 2px;
+  width: 32px;
+  height: 32px;
+  background: var(--accent);
+  color: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.step h3 {
+  margin-top: 0;
+}
+
+code {
+  padding: 3px 6px;
+  background: var(--code-bg);
+  border: 1px solid var(--code-border);
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+}
+
+pre {
+  padding: 16px;
+  background: var(--code-bg);
+  border: 1px solid var(--code-border);
+  border-radius: 8px;
+  overflow-x: auto;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 16px 0;
+}
+
+pre code {
+  padding: 0;
+  background: none;
+  border: none;
+}
+
+.alert {
+  padding: 16px;
+  border-radius: 8px;
+  border-left: 4px solid;
+  margin: 16px 0;
+}
+
+.alert.info {
+  background: var(--surface);
+  border-color: var(--accent);
+}
+
+.alert.warning {
+  background: var(--warning-bg);
+  border-color: var(--warning);
+}
+
+.alert.success {
+  background: var(--success-bg);
+  border-color: var(--success);
+}
+
+.alert-title {
+  font-weight: 600;
+  margin: 0 0 8px;
+}
+
+.comparison {
+  display: grid;
+  gap: 16px;
+  margin: 16px 0;
+}
+
+@media (min-width: 640px) {
+  .comparison {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.comparison-item {
+  padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.comparison-item h4 {
+  margin: 0 0 12px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.comparison-item ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.comparison-item li {
+  margin-bottom: 8px;
+}
+
+.emoji {
+  font-style: normal;
+  margin-right: 8px;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
+}
+
+.btn {
+  display: inline-block;
+  padding: 10px 20px;
+  background: var(--accent);
+  color: white;
+  border-radius: 8px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: background 0.2s;
+}
+
+.btn:hover {
+  background: var(--accent-hover);
+  text-decoration: none;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 16px 0;
+  font-size: 14px;
+}
+
+th, td {
+  padding: 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+th {
+  font-weight: 600;
+  color: var(--text-muted);
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+tr:last-child td {
+  border-bottom: none;
+}
+</style>
+
+<div class="container">
+  <header>
+    <h1>🚀 Groq API Deployment Guide</h1>
+    <p class="subtitle">Replace Google Translate with Groq for better translation quality on hm.ss.ru & bg.ss.ru</p>
+  </header>
+
+  <div class="alert success">
+    <div class="alert-title">✅ Changes Committed & Pushed</div>
+    <p>All code changes have been committed to <code>deploy/dev-setup</code> branch and pushed to GitHub.</p>
+  </div>
+
+  <div class="card elevated">
+    <h2>Why Groq?</h2>
+    <div class="comparison">
+      <div class="comparison-item">
+        <h4>❌ Before (Google Translate)</h4>
+        <ul>
+          <li>Translates toponyms: "Stari grad" → "Old Town"</li>
+          <li>Translates street names</li>
+          <li>Poor context understanding</li>
+          <li>Sometimes returns error pages</li>
+        </ul>
+      </div>
+      <div class="comparison-item">
+        <h4>✅ After (Groq + LLM)</h4>
+        <ul>
+          <li>Preserves ALL toponyms unchanged</li>
+          <li>Keeps street names intact</li>
+          <li>Better context understanding</li>
+          <li>Free: 14,400 requests/day</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Step-by-Step Deployment</h2>
+
+    <ol class="steps">
+      <li class="step">
+        <h3>Get Groq API Key</h3>
+        <p>Visit <a href="https://console.groq.com" target="_blank">console.groq.com</a> and sign up (free, no credit card required).</p>
+        <ol>
+          <li>Go to Settings → API Keys</li>
+          <li>Click "Create API Key"</li>
+          <li>Copy the key (starts with <code>gsk_...</code>)</li>
+        </ol>
+        <div class="alert info">
+          <strong>Note:</strong> Save the API key securely — you'll need it for deployment.
+        </div>
+      </li>
+
+      <li class="step">
+        <h3>Deploy to Dev (hm.ss.ru)</h3>
+        <p>SSH to the server and pull the latest changes:</p>
+        <pre><code># Connect to server
+ssh hm.ss.ru
+
+# Navigate to project
+cd /root/selfcheck/belgrade-utility-hub
+
+# Pull latest changes
+git pull origin deploy/dev-setup</code></pre>
+      </li>
+
+      <li class="step">
+        <h3>Set API Key</h3>
+        <p>Add the Groq API key to the environment:</p>
+        <pre><code># Option 1: Create/edit .env file
+echo "GROQ_API_KEY=gsk_your_api_key_here" >> .env
+
+# Option 2: Export directly (temporary)
+export GROQ_API_KEY="gsk_your_api_key_here"</code></pre>
+        <div class="alert warning">
+          <strong>Important:</strong> Replace <code>gsk_your_api_key_here</code> with your actual API key from step 1.
+        </div>
+      </li>
+
+      <li class="step">
+        <h3>Rebuild & Restart Scraper</h3>
+        <p>Rebuild the scraper container with new dependencies:</p>
+        <pre><code># For dev environment
+docker-compose -f docker-compose.yml -f docker-compose.dev.yml build scraper
+docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d scraper</code></pre>
+      </li>
+
+      <li class="step">
+        <h3>Monitor Logs</h3>
+        <p>Watch the scraper logs to verify translations are working:</p>
+        <pre><code># Watch logs in real-time
+docker logs -f belgrade_scraper_hm
+
+# Look for these messages:
+# ✅ "Translation to ru successful via Groq"
+# ✅ "Translation to en successful via Groq"
+# ❌ "Groq API key not set" (if key missing)</code></pre>
+      </li>
+
+      <li class="step">
+        <h3>Test Translations</h3>
+        <p>Compare translations in different languages:</p>
+        <ul>
+          <li><a href="https://hm.ss.ru/?lang=srp" target="_blank">hm.ss.ru/?lang=srp</a> — Serbian original</li>
+          <li><a href="https://hm.ss.ru/?lang=ru" target="_blank">hm.ss.ru/?lang=ru</a> — Russian translation</li>
+          <li><a href="https://hm.ss.ru/?lang=en" target="_blank">hm.ss.ru/?lang=en</a> — English translation</li>
+        </ul>
+        <div class="alert info">
+          <strong>Check:</strong> Municipality names should stay in Serbian (Stari grad, Voždovac, etc.)
+        </div>
+      </li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>Deploy to Production (bg.ss.ru)</h2>
+    <p>After testing on dev and confirming translations work correctly:</p>
+
+    <pre><code># 1. Merge to main branch (locally)
+git checkout main
+git merge deploy/dev-setup
+git push origin main
+
+# 2. On the server
+ssh hm.ss.ru
+cd /root/selfcheck/belgrade-utility-hub
+
+# 3. Pull and set API key
+git pull origin main
+export GROQ_API_KEY="gsk_your_api_key_here"  # or add to .env
+
+# 4. Rebuild and restart prod scraper
+docker-compose build scraper
+docker-compose up -d scraper
+
+# 5. Monitor logs
+docker logs -f belgrade_scraper</code></pre>
+  </div>
+
+  <div class="card">
+    <h2>Technical Details</h2>
+
+    <h3>Translation Model</h3>
+    <p>Using <code>llama-3.1-70b-versatile</code> — fast and high quality for translation tasks.</p>
+
+    <h3>System Prompt</h3>
+    <p>The model receives explicit instructions to preserve toponyms:</p>
+    <pre><code>You are a professional translator from Serbian to {target_lang}.
+
+CRITICAL RULES:
+1. Keep ALL place names, street names, municipality names EXACTLY as Serbian
+2. DO NOT translate: Barajevo, Čukarica, Grocka, Lazarevac, Mladenovac,
+   Novi Beograd, Obrenovac, Palilula, Rakovica, Savski venac, Sopot,
+   Stari grad, Surčin, Voždovac, Vračar, Zemun, Zvezdara
+3. DO NOT translate street names (ulica, bulevar, trg, etc.)
+4. Only translate the description of events, problems, and actions</code></pre>
+
+    <h3>Cost Analysis</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Metric</th>
+          <th>Value</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Free tier limit</td>
+          <td>14,400 requests/day</td>
+        </tr>
+        <tr>
+          <td>Typical scraper run</td>
+          <td>50-200 events</td>
+        </tr>
+        <tr>
+          <td>Translations per event</td>
+          <td>2 (Russian + English)</td>
+        </tr>
+        <tr>
+          <td>Total requests</td>
+          <td>100-400 per run</td>
+        </tr>
+        <tr>
+          <td><strong>Cost</strong></td>
+          <td><strong>FREE (well within limits)</strong></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Troubleshooting</h2>
+
+    <h3>Problem: "Groq API key not set"</h3>
+    <p><strong>Solution:</strong> Verify <code>GROQ_API_KEY</code> is set in environment or .env file</p>
+    <pre><code># Check if key is set
+echo $GROQ_API_KEY
+
+# Or check in container
+docker exec belgrade_scraper_hm env | grep GROQ</code></pre>
+
+    <h3>Problem: Translations return original text</h3>
+    <p><strong>Possible causes:</strong></p>
+    <ul>
+      <li>API key is invalid or expired</li>
+      <li>Network connectivity issues from container</li>
+      <li>Rate limit exceeded (unlikely with free tier)</li>
+    </ul>
+    <p><strong>Solution:</strong> Check logs for specific error messages</p>
+
+    <h3>Problem: Container fails to start</h3>
+    <p><strong>Solution:</strong> Check if <code>groq</code> package installed correctly</p>
+    <pre><code># Rebuild from scratch
+docker-compose build --no-cache scraper
+docker-compose up -d scraper</code></pre>
+  </div>
+
+  <div class="alert success">
+    <div class="alert-title">📚 Full Documentation</div>
+    <p>See <code>GROQ_INTEGRATION.md</code> in the repository for complete technical documentation.</p>
+  </div>
+
+  <div class="card">
+    <h2>Next Steps</h2>
+    <ul>
+      <li>✅ Deploy to dev (hm.ss.ru) and test</li>
+      <li>⏳ Monitor translation quality for a few days</li>
+      <li>⏳ Deploy to production (bg.ss.ru) when satisfied</li>
+      <li>⏳ Optional: Experiment with different models (llama-3.1-8b-instant for speed)</li>
+    </ul>
+  </div>
+</div>

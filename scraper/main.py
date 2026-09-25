@@ -147,7 +147,7 @@ CRITICAL RULES:
                 {"role": "user", "content": text[:4000]}
             ],
             temperature=0.3,
-            max_tokens=2048,
+            max_tokens=4096,
             response_format={"type": "json_object"}
         )
 

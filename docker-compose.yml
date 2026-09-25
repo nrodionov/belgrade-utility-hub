@@ -6,6 +6,8 @@ services:
     container_name: belgrade_db
     restart: always
     environment:
+      HTTP_PROXY: ${HTTP_PROXY}
+      HTTPS_PROXY: ${HTTPS_PROXY}
       POSTGRES_USER: ${POSTGRES_USER:-belgrade_user}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-belgrade_password}
       POSTGRES_DB: ${POSTGRES_DB:-belgrade_monitor}
@@ -32,8 +34,10 @@ services:
       db:
         condition: service_healthy
     environment:
+      HTTP_PROXY: ${HTTP_PROXY}
+      HTTPS_PROXY: ${HTTPS_PROXY}
       DATABASE_URL: ${DATABASE_URL}
-      GROQ_API_KEY: 
+      GROQ_API_KEY: ${GROQ_API_KEY}
       TZ: ${TZ:-Europe/Belgrade}
     volumes:
       - ./scraper:/app
@@ -43,11 +47,13 @@ services:
     container_name: belgrade_web
     restart: always
     ports:
-      - "127.0.0.1:${WEB_PORT:-8000}:8000"
+      - "127.0.0.1:8000:8000"
     depends_on:
       db:
         condition: service_healthy
     environment:
+      HTTP_PROXY: ${HTTP_PROXY}
+      HTTPS_PROXY: ${HTTPS_PROXY}
       DATABASE_URL: ${DATABASE_URL}
       TZ: ${TZ:-Europe/Belgrade}
     volumes:
