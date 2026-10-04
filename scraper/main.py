@@ -145,10 +145,9 @@ CRITICAL GRAMMAR & TRANSLATION RULES FOR RUSSIAN:
 1. "Струја" means ELECTRICITY (электричество / электроэнергия). NEVER translate "Струја" as "врач", "доктор", or "physician".
 2. Translate and transcribe ALL text, including proper nouns, street names, and location names, into proper Russian Cyrillic (do not leave raw Serbian spelling with characters like č, ć, ž, š, đ, lj, nj, dž, or mixed Serbian Latin/Cyrillic like Влајковићевој; transliterate or translate them naturally into Russian, e.g., Vlajkovićeva -> Влайковичева / на Влайковичевой, Surčinska -> Сурчинская / на Сурчинской).
 3. When translating location references, ALWAYS use the Russian preposition "на" for streets, avenues, and squares (e.g., "на улице...", "на бульваре...", "на площади...", "на [Название улицы]"), NEVER "в".
-4. EXCEPTION FOR ELECTRICITY / UTILITY STREET LISTS: In electricity outage announcements containing lists of streets (e.g. following "Улице:" or "Ulice:"), keep the street names in their original spelling (Serbian Latin/Cyrillic, e.g. "Beogradska", "Braće Nedića", "Bulevar Kralja Aleksandra") without transliterating them into Russian Cyrillic. Only translate the labels like "Општина" -> "Муниципалитет", "Време" -> "Время", "Улице" -> "Улицы".
-5. Translate utility notice labels correctly: "Општина" -> "Муниципалитет", "Време" -> "Время", "Улице" -> "Улицы".
-6. Preserve date placeholders like [[DATE0]] exactly as they are.
-7. Return ONLY valid JSON: {"title_ru": "...", "title_en": "...", "desc_ru": "...", "desc_en": "..."}
+4. Translate utility notice labels correctly: "Општина" -> "Муниципалитет", "Време" -> "Время", "Улице" -> "Улицы".
+5. Preserve date placeholders like [[DATE0]] exactly as they are.
+6. Return ONLY valid JSON: {"title_ru": "...", "title_en": "...", "desc_ru": "...", "desc_en": "..."}
 """
 
         response = groq_client.chat.completions.create(
