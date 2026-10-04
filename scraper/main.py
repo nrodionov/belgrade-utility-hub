@@ -109,59 +109,61 @@ def log_rate_limits(response):
         h = response.headers
         logging.info(f"Rate Limit Status: Tokens-Remaining={h.get('x-ratelimit-remaining-tokens')}, Requests-Remaining={h.get('x-ratelimit-remaining-requests')}, Reset={h.get('x-ratelimit-reset-tokens')}")
 
-async def translate_both(text, model="qwen/qwen3.8-27b"):
-    """Translate text into Russian and English in a single Groq API call with fallback support."""
-    if not text: return "", ""
+async def translate_event(title_sr, desc_sr, model="qwen/qwen3.8-27b"):
+    """Translate title and description in a single Groq API call."""
+    if not title_sr: title_sr = ""
+    if not desc_sr: desc_sr = ""
 
-    # Specific fix for Air Quality to avoid hallucinations
-    if "Ваздух:" in text or "Vazduh:" in text:
-        mapping = {"NIZAK!": ("НИЗКИЙ!", "Low"), "SREDNJI!": ("СРЕДНИЙ!", "Moderate"), "VISOK!": ("ВЫСОКИЙ!", "High")}
-        for sr_val, (ru_val, en_val) in mapping.items():
-            if sr_val in text:
-                t_ru = text.replace("Ваздух:", "Воздух:").replace("Vazduh:", "Воздух:").replace(sr_val, ru_val)
-                t_en = text.replace("Ваздух:", "Air Quality:").replace("Vazduh:", "Air Quality:").replace(sr_val, en_val)
-                return t_ru, t_en
+    combined_text = f"TITLE: {title_sr}\n\nDESCRIPTION: {desc_sr}"
 
     # Protect dates from translation
-    dates = re.findall(r'\d{1,2}[\./\s]+\d{1,2}[\./\s]+\d{4}', text)
+    dates = re.findall(r'\d{1,2}[\./\s]+\d{1,2}[\./\s]+\d{4}', combined_text)
     for i, d in enumerate(dates):
-        text = text.replace(d, f" [[DATE{i}]] ")
+        combined_text = combined_text.replace(d, f" [[DATE{i}]] ")
 
     if not groq_client:
-        return text, text
+        return title_sr, title_sr, desc_sr, desc_sr
 
     try:
-        system_prompt = """You are a professional translator. 
-Translate the provided Serbian text into BOTH Russian and English.
+        system_prompt = """You are a professional translator from Serbian to Russian and English. 
+Translate the provided Serbian TITLE and DESCRIPTION naturally and completely into BOTH Russian and English.
 
-CRITICAL RULES:
-1. Keep ALL place names, street names, municipality names EXACTLY as they appear in Serbian.
-2. Return ONLY valid JSON: {"ru": "...", "en": "..."}
-3. Translate ONLY the description, not the locations.
+CRITICAL GRAMMAR & TRANSLATION RULES FOR RUSSIAN:
+1. Translate and transcribe ALL text, including proper nouns, street names, and location names, into proper Russian Cyrillic (do not leave raw Serbian spelling with characters like č, ć, ž, š, đ, lj, nj, dž, or mixed Serbian Latin/Cyrillic like Влајковићевој; transliterate or translate them naturally into Russian, e.g., Vlajkovićeva -> Влайковичева / на Влайковичевой, Surčinska -> Сурчинская / на Сурчинской, Trebinjska -> Требиньская / на Требиньской, Vojvodjanska -> Воеводская / на Воеводской).
+2. When translating location references, ALWAYS use the Russian preposition "на" for streets, avenues, and squares (e.g., "на улице...", "на бульваре...", "на площади...", "на [Название улицы]"), NEVER "в".
+3. Preserve date placeholders like [[DATE0]] exactly as they are.
+4. Return ONLY valid JSON: {"title_ru": "...", "title_en": "...", "desc_ru": "...", "desc_en": "..."}
 """
 
         response = groq_client.chat.completions.create(
             model=model,
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": text[:4000]}
+                {"role": "user", "content": combined_text[:10000]}
             ],
             temperature=0.3,
-            max_tokens=2048,
-            response_format={"type": "json_object"}
+            max_tokens=8192
         )
 
-        result = json.loads(response.choices[0].message.content.strip())
-        t_ru, t_en = result.get('ru'), result.get('en')
-        
-        if not t_ru or not t_en:
-            raise ValueError("Translation returned empty fields")
+        raw_content = response.choices[0].message.content.strip()
+        match = re.search(r'\{.*\}', raw_content, re.DOTALL)
+        if match:
+            result = json.loads(match.group(0))
+        else:
+            result = json.loads(raw_content)
+
+        t_ru = result.get('title_ru') or result.get('ru') or title_sr
+        t_en = result.get('title_en') or result.get('en') or title_sr
+        d_ru = result.get('desc_ru') or result.get('description_ru') or desc_sr
+        d_en = result.get('desc_en') or result.get('description_en') or desc_sr
 
         for i, d in enumerate(dates):
             t_ru = re.sub(rf'\[\[DATE{i}\]\]', d, t_ru, flags=re.IGNORECASE)
             t_en = re.sub(rf'\[\[DATE{i}\]\]', d, t_en, flags=re.IGNORECASE)
+            d_ru = re.sub(rf'\[\[DATE{i}\]\]', d, d_ru, flags=re.IGNORECASE)
+            d_en = re.sub(rf'\[\[DATE{i}\]\]', d, d_en, flags=re.IGNORECASE)
 
-        return t_ru, t_en
+        return t_ru, t_en, d_ru, d_en
 
     except Exception as e:
         if hasattr(e, 'response') and e.response is not None:
@@ -183,6 +185,12 @@ async def save_event(conn, event):
 
         row = await conn.fetchrow("SELECT id FROM events WHERE hash_id = $1", event['hash_id'])
         
+        t_ru = event.get('title_ru')
+        t_en = event.get('title_en')
+        d_ru = event.get('description_ru')
+        d_en = event.get('description_en')
+        t_status = event.get('translation_status', 'pending')
+
         if row:
             await conn.execute("""
                 UPDATE events SET 
@@ -191,19 +199,25 @@ async def save_event(conn, event):
                     title_sr = $3,
                     description_sr = $4,
                     title_sl = $5,
-                    description_sl = $6
-                WHERE hash_id = $7
+                    description_sl = $6,
+                    title_ru = COALESCE($7, title_ru),
+                    title_en = COALESCE($8, title_en),
+                    description_ru = COALESCE($9, description_ru),
+                    description_en = COALESCE($10, description_en),
+                    translation_status = COALESCE($11, translation_status)
+                WHERE hash_id = $12
             """, end_t, munis if munis else None, event['title_sr'], clean_sr, to_latin(event['title_sr']), to_latin(clean_sr),
-               event['hash_id'])
+               t_ru, t_en, d_ru, d_en, t_status if t_status == 'success' else None, event['hash_id'])
             return
 
         logging.info(f"Saving new: {event['category']} - {event['title_sr'][:30]}")
         
         await conn.execute("""
-            INSERT INTO events (category, title_sr, title_sl, description_sr, description_sl, region, municipality, start_time, end_time, source_url, hash_id, translation_status, retry_count)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'pending', 0)
+            INSERT INTO events (category, title_sr, title_sl, description_sr, description_sl, region, municipality, start_time, end_time, source_url, hash_id, translation_status, title_ru, title_en, description_ru, description_en, retry_count)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 0)
         """, event['category'], event['title_sr'], to_latin(event['title_sr']), clean_sr, to_latin(clean_sr), 
-           event['region'], munis if munis else None, event['start_time'], end_t, event['source_url'], event['hash_id'])
+           event['region'], munis if munis else None, event['start_time'], end_t, event['source_url'], event['hash_id'], t_status,
+           t_ru, t_en, d_ru, d_en)
     except Exception as e: logging.error(f"Save error: {e}")
 
 async def scrape_electricity(session):
@@ -275,36 +289,56 @@ async def scrape_transport(session):
                 if not url.startswith('http'): url = "https://www.bgprevoz.rs" + url
                 links.add(url)
             
-            for url in links:
-                try:
-                    async with session.get(url, headers=HEADERS, timeout=30) as d_resp:
-                        if d_resp.status != 200:
-                            logging.error(f"Transport article {url} returned status {d_resp.status}")
-                            continue
-                        d_soup = BeautifulSoup(await d_resp.text(), 'lxml')
-                        title = d_soup.find('h1')
-                        title_text = title.get_text(strip=True) if title else "Transport alert"
-                        
-                        content = d_soup.find('div', class_='editor')
-                        description = content.get_text(separator=' ', strip=True) if content else ""
-                        if not description:
-                            main_content = d_soup.find('div', class_='max-w-6xl')
-                            description = main_content.get_text(separator=' ', strip=True) if main_content else ""
-                        
-                        events.append({
-                            'category': 'transport',
-                            'title_sr': title_text,
-                            'description_sr': description,
-                            'region': "Beograd",
-                            'municipalities': detect_municipalities(title_text + " " + description),
-                            'start_time': datetime.now(TZ),
-                            'end_time': datetime.now(TZ) + timedelta(days=2),
-                            'source_url': url,
-                            'hash_id': hashlib.sha256(url.encode()).hexdigest()
-                        })
-                except Exception as e:
-                    logging.error(f"Error parsing transport article {url}: {type(e).__name__}: {e}")
-    except Exception as e: logging.error(f"Transport list error: {type(e).__name__}: {e}")
+            sem = asyncio.Semaphore(3)
+            
+            async def fetch_article(url):
+                async with sem:
+                    for attempt in range(3):
+                        try:
+                            async with session.get(url, headers=HEADERS, timeout=20) as d_resp:
+                                if d_resp.status != 200:
+                                    if attempt == 2:
+                                        logging.warning(f"Transport article {url} returned status {d_resp.status}")
+                                    await asyncio.sleep(2)
+                                    continue
+                                d_soup = BeautifulSoup(await d_resp.text(), 'lxml')
+                                title = d_soup.find('h1')
+                                title_text = title.get_text(strip=True) if title else "Transport alert"
+                                
+                                content = d_soup.find('div', class_='editor')
+                                description = content.get_text(separator=' ', strip=True) if content else ""
+                                if not description:
+                                    main_content = d_soup.find('div', class_='max-w-6xl')
+                                    description = main_content.get_text(separator=' ', strip=True) if main_content else ""
+                                if not description:
+                                    description = title_text
+                                
+                                return {
+                                    'category': 'transport',
+                                    'title_sr': title_text,
+                                    'description_sr': description,
+                                    'region': "Beograd",
+                                    'municipalities': detect_municipalities(title_text + " " + description),
+                                    'start_time': datetime.now(TZ),
+                                    'end_time': datetime.now(TZ) + timedelta(days=2),
+                                    'source_url': url,
+                                    'hash_id': hashlib.sha256(url.encode()).hexdigest()
+                                }
+                        except Exception as e:
+                            if attempt == 2:
+                                logging.warning(f"Timeout/Error parsing transport article {url} after 3 attempts: {e}")
+                            else:
+                                await asyncio.sleep(2)
+                    return None
+
+            tasks = [fetch_article(url) for url in links]
+            results = await asyncio.gather(*tasks)
+            for res in results:
+                if res:
+                    events.append(res)
+                    
+    except Exception as e: 
+        logging.error(f"Transport list error: {type(e).__name__}: {e}")
     return events
 
 async def scrape_traffic_official(session):
@@ -389,12 +423,93 @@ async def scrape_air_quality(session):
     try:
         async with session.get(url, headers=HEADERS, timeout=15) as resp:
             soup = BeautifulSoup(await resp.text(), 'lxml')
-            status_tag = soup.select_one('.portal-status-card__title b')
-            if status_tag:
-                val = status_tag.get_text(strip=True)
-                now = datetime.now(TZ)
-                events.append({'category': 'ecology', 'title_sr': f"Ваздух: {val}", 'description_sr': f"Квалитет ваздуха у Београду: {val}.", 'region': "Beograd", 'municipalities': [], 'start_time': now, 'end_time': now + timedelta(hours=1), 'source_url': url, 'hash_id': hashlib.sha256(f"air:{now.strftime('%Y-%m-%d-%H')}".encode()).hexdigest()})
-    except: pass
+            now = datetime.now(TZ)
+            today_str = now.strftime('%Y-%m-%d')
+            
+            cards = soup.select('.portal-status-card')
+            for card in cards:
+                text = card.get_text(separator=' ', strip=True)
+                if "KVALITET VAZDUHA" in text.upper():
+                    b_tag = card.find('b')
+                    val = b_tag.get_text(strip=True) if b_tag else "N/A"
+                    val_upper = val.upper().rstrip('!')
+                    
+                    aq_map = {
+                        "ODLIČAN": ("ОТЛИЧНОЕ", "Excellent"),
+                        "DOBAR": ("ХОРОШЕЕ", "Good"),
+                        "PRIHVATLJIV": ("ПРИЕМЛЕМОЕ", "Acceptable"),
+                        "ZADOVOLJAJUĆI": ("УДОВЛЕТВОРИТЕЛЬНОЕ", "Satisfactory"),
+                        "UPOZORARAYUĆI": ("ТРЕВОЖНОЕ", "Warning"),
+                        "LOŠ": ("ПЛОХОЕ", "Poor"),
+                        "VRLO LOŠ": ("ОЧЕНЬ ПЛОХОЕ", "Very Poor"),
+                        "SREDNJI": ("СРЕДНЕЕ", "Moderate"),
+                        "NIZAK": ("НИЗКОЕ", "Low")
+                    }
+                    ru_val, en_val = aq_map.get(val_upper, (val, val))
+                    
+                    title_sr = f"Квалитет ваздуха: {val}"
+                    title_ru = f"Качество воздуха: {ru_val}"
+                    title_en = f"Air Quality: {en_val}"
+                    desc_sr = f"Kvalitet vazduha na teritoriji Beograda je {val}."
+                    desc_ru = f"Качество воздуха на территории Белграда: {ru_val.lower()}."
+                    desc_en = f"Air quality in the territory of Belgrade is {en_val.lower()}."
+                    
+                    events.append({
+                        'category': 'ecology',
+                        'title_sr': title_sr,
+                        'title_ru': title_ru,
+                        'title_en': title_en,
+                        'description_sr': desc_sr,
+                        'description_ru': desc_ru,
+                        'description_en': desc_en,
+                        'region': "Beograd",
+                        'municipalities': [],
+                        'start_time': now.replace(hour=0, minute=0, second=0),
+                        'end_time': now.replace(hour=23, minute=59, second=59),
+                        'source_url': url,
+                        'hash_id': hashlib.sha256(f"air_quality_{today_str}".encode()).hexdigest(),
+                        'translation_status': 'success'
+                    })
+                    
+                elif "NIVO UV ZRAČENJA" in text.upper():
+                    b_tag = card.find('b')
+                    val = b_tag.get_text(strip=True) if b_tag else "N/A"
+                    val_upper = val.upper().rstrip('!')
+                    
+                    uv_map = {
+                        "NIZAK": ("НИЗКОЕ", "Low"),
+                        "SREDNJI": ("СРЕДНЕЕ", "Moderate"),
+                        "VISOK": ("ВЫСОКОЕ", "High"),
+                        "VRLO VISOK": ("ОЧЕНЬ ВЫСОКОЕ", "Very High"),
+                        "EKSTREMNO VISOK": ("ЭКСТРЕМАЛЬНО ВЫСОКОЕ", "Extreme")
+                    }
+                    ru_val, en_val = uv_map.get(val_upper, (val, val))
+                    
+                    title_sr = f"УФ зрачење: {val}"
+                    title_ru = f"УФ-излучение: {ru_val}"
+                    title_en = f"UV Radiation: {en_val}"
+                    desc_sr = f"Nivo UV zračenja u Beogradu je {val}."
+                    desc_ru = f"Уровень ультрафиолетового излучения в Белграде: {ru_val.lower()}."
+                    desc_en = f"Ultraviolet radiation level in Belgrade is {en_val.lower()}."
+                    
+                    events.append({
+                        'category': 'ecology',
+                        'title_sr': title_sr,
+                        'title_ru': title_ru,
+                        'title_en': title_en,
+                        'description_sr': desc_sr,
+                        'description_ru': desc_ru,
+                        'description_en': desc_en,
+                        'region': "Beograd",
+                        'municipalities': [],
+                        'start_time': now.replace(hour=0, minute=0, second=0),
+                        'end_time': now.replace(hour=23, minute=59, second=59),
+                        'source_url': url,
+                        'hash_id': hashlib.sha256(f"uv_radiation_{today_str}".encode()).hexdigest(),
+                        'translation_status': 'success'
+                    })
+    except Exception as e:
+        logging.error(f"Error scraping air quality: {e}")
     return events
 
 async def run_translator():
@@ -403,11 +518,11 @@ async def run_translator():
     
     while True:
         # Get pending events or failed events with retries < 3
-        events = await conn.fetch("SELECT id, title_sr, description_sr FROM events WHERE translation_status IN ('pending', 'failed') AND retry_count < 3 LIMIT 10")
+        events = await conn.fetch("SELECT id, title_sr, description_sr FROM events WHERE translation_status IN ('pending', 'failed') AND retry_count < 20 LIMIT 10")
         
         for e in events:
-            if len(e['description_sr'] or "") > 2000:
-                logging.info(f"Skipping translation for event {e['id']} due to length (>2000 chars)")
+            if len(e['description_sr'] or "") > 10000:
+                logging.info(f"Skipping translation for event {e['id']} due to length (>10000 chars)")
                 await conn.execute("UPDATE events SET title_ru=$1, title_en=$2, description_ru=$3, description_en=$4, translation_status='success' WHERE id=$5", e['title_sr'], e['title_sr'], e['description_sr'], e['description_sr'], e['id'])
                 continue
             logging.info(f"Translating event {e['id']}")
@@ -415,8 +530,7 @@ async def run_translator():
             
             for model in models:
                 try:
-                    t_ru, t_en = await translate_both(e['title_sr'], model=model)
-                    d_ru, d_en = await translate_both(e['description_sr'], model=model)
+                    t_ru, t_en, d_ru, d_en = await translate_event(e['title_sr'], e['description_sr'], model=model)
                     
                     if t_ru and t_en and d_ru and d_en:
                         await conn.execute("UPDATE events SET title_ru=$1, title_en=$2, description_ru=$3, description_en=$4, translation_status='success', retry_count=retry_count+1 WHERE id=$5", t_ru, t_en, d_ru, d_en, e['id'])
@@ -436,6 +550,8 @@ async def run_translator():
             if not success:
                 await conn.execute("UPDATE events SET translation_status='failed', retry_count=retry_count+1 WHERE id=$1", e['id'])
                 logging.info(f"Could not translate event {e['id']} with any model currently, will retry next cycle.")
+            
+            await asyncio.sleep(15)
         
         await asyncio.sleep(60) # 1 minute interval
 
