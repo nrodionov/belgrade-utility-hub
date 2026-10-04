@@ -114,6 +114,19 @@ async def translate_event(title_sr, desc_sr, model="qwen/qwen3.8-27b"):
     if not title_sr: title_sr = ""
     if not desc_sr: desc_sr = ""
 
+    # Deterministic fix for electricity titles to prevent LLM hallucinations (Струја -> Электричество / врач)
+    if title_sr.startswith("Струја"):
+        t_ru = title_sr.replace("Струја", "Электричество")
+        t_en = title_sr.replace("Струја", "Electricity")
+    elif title_sr.startswith("Водовод") or title_sr.startswith("Вода"):
+        t_ru = title_sr.replace("Водовод", "Водоснабжение").replace("Вода", "Вода")
+        t_en = title_sr.replace("Водовод", "Water Supply").replace("Вода", "Water")
+    elif title_sr.startswith("Грејање"):
+        t_ru = title_sr.replace("Грејање", "Отопление")
+        t_en = title_sr.replace("Грејање", "Heating")
+    else:
+        t_ru, t_en = None, None
+
     combined_text = f"TITLE: {title_sr}\n\nDESCRIPTION: {desc_sr}"
 
     # Protect dates from translation
@@ -122,17 +135,19 @@ async def translate_event(title_sr, desc_sr, model="qwen/qwen3.8-27b"):
         combined_text = combined_text.replace(d, f" [[DATE{i}]] ")
 
     if not groq_client:
-        return title_sr, title_sr, desc_sr, desc_sr
+        return t_ru or title_sr, t_en or title_sr, desc_sr, desc_sr
 
     try:
         system_prompt = """You are a professional translator from Serbian to Russian and English. 
 Translate the provided Serbian TITLE and DESCRIPTION naturally and completely into BOTH Russian and English.
 
 CRITICAL GRAMMAR & TRANSLATION RULES FOR RUSSIAN:
-1. Translate and transcribe ALL text, including proper nouns, street names, and location names, into proper Russian Cyrillic (do not leave raw Serbian spelling with characters like č, ć, ž, š, đ, lj, nj, dž, or mixed Serbian Latin/Cyrillic like Влајковићевој; transliterate or translate them naturally into Russian, e.g., Vlajkovićeva -> Влайковичева / на Влайковичевой, Surčinska -> Сурчинская / на Сурчинской, Trebinjska -> Требиньская / на Требиньской, Vojvodjanska -> Воеводская / на Воеводской).
-2. When translating location references, ALWAYS use the Russian preposition "на" for streets, avenues, and squares (e.g., "на улице...", "на бульваре...", "на площади...", "на [Название улицы]"), NEVER "в".
-3. Preserve date placeholders like [[DATE0]] exactly as they are.
-4. Return ONLY valid JSON: {"title_ru": "...", "title_en": "...", "desc_ru": "...", "desc_en": "..."}
+1. "Струја" means ELECTRICITY (электричество / электроэнергия). NEVER translate "Струја" as "врач", "доктор", or "physician".
+2. Translate and transcribe ALL text, including proper nouns, street names, and location names, into proper Russian Cyrillic (do not leave raw Serbian spelling with characters like č, ć, ž, š, đ, lj, nj, dž, or mixed Serbian Latin/Cyrillic like Влајковићевој; transliterate or translate them naturally into Russian, e.g., Vlajkovićeva -> Влайковичева / на Влайковичевой, Surčinska -> Сурчинская / на Сурчинской).
+3. When translating location references, ALWAYS use the Russian preposition "на" for streets, avenues, and squares (e.g., "на улице...", "на бульваре...", "на площади...", "на [Название улицы]"), NEVER "в".
+4. Translate utility notice labels correctly: "Општина" -> "Муниципалитет", "Време" -> "Время", "Улице" -> "Улицы".
+5. Preserve date placeholders like [[DATE0]] exactly as they are.
+6. Return ONLY valid JSON: {"title_ru": "...", "title_en": "...", "desc_ru": "...", "desc_en": "..."}
 """
 
         response = groq_client.chat.completions.create(
@@ -152,8 +167,8 @@ CRITICAL GRAMMAR & TRANSLATION RULES FOR RUSSIAN:
         else:
             result = json.loads(raw_content)
 
-        t_ru = result.get('title_ru') or result.get('ru') or title_sr
-        t_en = result.get('title_en') or result.get('en') or title_sr
+        if not t_ru: t_ru = result.get('title_ru') or result.get('ru') or title_sr
+        if not t_en: t_en = result.get('title_en') or result.get('en') or title_sr
         d_ru = result.get('desc_ru') or result.get('description_ru') or desc_sr
         d_en = result.get('desc_en') or result.get('description_en') or desc_sr
 
@@ -442,6 +457,9 @@ async def scrape_air_quality(session):
                         "UPOZORARAYUĆI": ("ТРЕВОЖНОЕ", "Warning"),
                         "LOŠ": ("ПЛОХОЕ", "Poor"),
                         "VRLO LOŠ": ("ОЧЕНЬ ПЛОХОЕ", "Very Poor"),
+                        "ZAGAĐEN": ("ЗАГРЯЗНЕННОЕ", "Polluted"),
+                        "JAKO ZAGAĐEN": ("СИЛЬНО ЗАГРЯЗНЕННОЕ", "Heavily Polluted"),
+                        "UMEREN": ("УМЕРЕННОЕ", "Moderate"),
                         "SREDNJI": ("СРЕДНЕЕ", "Moderate"),
                         "NIZAK": ("НИЗКОЕ", "Low")
                     }
@@ -463,7 +481,7 @@ async def scrape_air_quality(session):
                         'description_ru': desc_ru,
                         'description_en': desc_en,
                         'region': "Beograd",
-                        'municipalities': [],
+                        'municipalities': MUNICIPALITIES,
                         'start_time': now.replace(hour=0, minute=0, second=0),
                         'end_time': now.replace(hour=23, minute=59, second=59),
                         'source_url': url,
@@ -501,7 +519,7 @@ async def scrape_air_quality(session):
                         'description_ru': desc_ru,
                         'description_en': desc_en,
                         'region': "Beograd",
-                        'municipalities': [],
+                        'municipalities': MUNICIPALITIES,
                         'start_time': now.replace(hour=0, minute=0, second=0),
                         'end_time': now.replace(hour=23, minute=59, second=59),
                         'source_url': url,
