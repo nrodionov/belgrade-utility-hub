@@ -561,7 +561,8 @@ async def run_translator():
                 except Exception as ex:
                     err_msg = str(ex)
                     if "429" in err_msg or "rate_limit" in err_msg:
-                        logging.warning(f"Model {model} rate limited, trying next...")
+                        logging.warning(f"Model {model} rate limited (429), pausing for 120 seconds to allow Groq to recover...")
+                        await asyncio.sleep(120)
                         continue # Try next model
                     else:
                         logging.error(f"Translation error with {model}: {ex}")
