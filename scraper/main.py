@@ -304,10 +304,11 @@ async def scrape_transport(session):
                 if not url.startswith('http'): url = "https://www.bgprevoz.rs" + url
                 links.add(url)
             
-            sem = asyncio.Semaphore(3)
+            sem = asyncio.Semaphore(1)
             
             async def fetch_article(url):
                 async with sem:
+                    await asyncio.sleep(1.5)
                     for attempt in range(3):
                         try:
                             async with session.get(url, headers=HEADERS, timeout=20) as d_resp:
@@ -569,7 +570,7 @@ async def run_translator():
                 await conn.execute("UPDATE events SET translation_status='failed', retry_count=retry_count+1 WHERE id=$1", e['id'])
                 logging.info(f"Could not translate event {e['id']} with any model currently, will retry next cycle.")
             
-            await asyncio.sleep(15)
+            await asyncio.sleep(30)
         
         await asyncio.sleep(60) # 1 minute interval
 
