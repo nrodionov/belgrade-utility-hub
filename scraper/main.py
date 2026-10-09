@@ -320,24 +320,57 @@ async def scrape_water(session):
         async with session.get(url_kvarovi, headers=HEADERS, timeout=15) as resp:
             if resp.status == 200:
                 soup = BeautifulSoup(await resp.text(), 'lxml')
-                content = soup.select_one('.entry-content, main, article')
-                if content:
-                    full_text = content.get_text(separator='\n', strip=True)
-                    now = datetime.now(TZ)
-                    today_str = now.strftime('%Y-%m-%d')
-                    events.append({
-                        'category': 'water',
-                        'title_sr': f"Кварови на мрежи: {today_str}",
-                        'description_sr': full_text[:4000],
-                        'region': "Beograd",
-                        'municipalities': detect_municipalities(full_text),
-                        'start_time': now.replace(hour=0, minute=0),
-                        'end_time': now.replace(hour=23, minute=59),
-                        'source_url': url_kvarovi,
-                        'hash_id': hashlib.sha256(f"water_kvarovi:{today_str}".encode()).hexdigest()
-                    })
+                now = datetime.now(TZ)
+                today_str = now.strftime('%Y-%m-%d')
+                for li in soup.select('div.kvr ul li, .toggle_content ul li'):
+                    txt = li.get_text(separator=' ', strip=True)
+                    if ':' in txt:
+                        m_part, s_part = txt.split(':', 1)
+                        m_part, s_part = m_part.strip(), s_part.strip()
+                        if m_part and s_part:
+                            munis = detect_municipalities(m_part)
+                            events.append({
+                                'category': 'water',
+                                'title_sr': f"Квар на водоводу: {m_part}",
+                                'description_sr': f"Општина: {m_part}\nУлице без воде: {s_part}",
+                                'region': "Beograd",
+                                'municipalities': munis,
+                                'start_time': now.replace(hour=8, minute=0, second=0),
+                                'end_time': now.replace(hour=23, minute=59, second=59),
+                                'source_url': url_kvarovi,
+                                'hash_id': hashlib.sha256(f"water_fault:{m_part}:{s_part[:30]}:{today_str}".encode()).hexdigest()
+                            })
     except Exception as e:
         logging.error(f"Error scraping kvarovi-na-mrezi: {e}")
+
+    # 3. Scrape vesti (news / announcements)
+    url_vesti = "https://www.bvk.rs/vesti/"
+    try:
+        async with session.get(url_vesti, headers=HEADERS, timeout=15) as resp:
+            if resp.status == 200:
+                soup = BeautifulSoup(await resp.text(), 'lxml')
+                for article in soup.find_all(['article', 'div', 'section'], class_=lambda c: c and ('post' in c or 'item' in c or 'blog' in c or 'textblock' in c)):
+                    h = article.find(['h2', 'h3', 'h4', 'strong', 'blockquote'])
+                    if not h: continue
+                    t_text = h.get_text(separator=' ', strip=True)
+                    if len(t_text) < 10: continue
+                    desc = article.get_text(separator=' ', strip=True)
+                    s_date, e_date = parse_dates(t_text + " " + desc)
+                    s_date = s_date or datetime.now(TZ)
+                    if not e_date: e_date = s_date.replace(hour=23, minute=59)
+                    events.append({
+                        'category': 'water',
+                        'title_sr': t_text[:100],
+                        'description_sr': desc,
+                        'region': "Beograd",
+                        'municipalities': detect_municipalities(t_text + " " + desc),
+                        'start_time': s_date.replace(hour=8, minute=0),
+                        'end_time': e_date,
+                        'source_url': url_vesti,
+                        'hash_id': hashlib.sha256(f"water_vesti:{t_text[:50]}".encode()).hexdigest()
+                    })
+    except Exception as e:
+        logging.error(f"Error scraping vesti: {e}")
 
     return events
 
