@@ -269,11 +269,13 @@ async def scrape_electricity(session):
     return events
 
 async def scrape_water(session):
-    urls = [("https://www.bvk.rs/planirani-radovi/", "water"), ("https://www.bvk.rs/kvarovi-na-mrezi/", "water")]
     events = []
-    for url, cat in urls:
-        try:
-            async with session.get(url, headers=HEADERS, timeout=15) as resp:
+    
+    # 1. Scrape planirani-radovi
+    url_plan = "https://www.bvk.rs/planirani-radovi/"
+    try:
+        async with session.get(url_plan, headers=HEADERS, timeout=15) as resp:
+            if resp.status == 200:
                 soup = BeautifulSoup(await resp.text(), 'lxml')
                 for toggle in soup.select('.toggler'):
                     t_text = toggle.get('data-title') or toggle.get_text(strip=True)
@@ -285,8 +287,58 @@ async def scrape_water(session):
                     if not e_date: e_date = s_date.replace(hour=23, minute=59)
                     clean_title = t_text
                     if re.match(r'^\d{1,2}[\./\s]+\d.[\./\s]+\d{4}\.?$', t_text): clean_title = f"Водовод: Радови {t_text}"
-                    events.append({'category': 'water', 'title_sr': clean_title, 'description_sr': desc, 'region': "Beograd", 'municipalities': detect_municipalities(t_text + " " + desc), 'start_time': s_date.replace(hour=8, minute=0), 'end_time': e_date.replace(hour=23, minute=59), 'source_url': url, 'hash_id': hashlib.sha256(f"water:{t_text}:{s_date.date()}".encode()).hexdigest()})
-        except: pass
+                    events.append({'category': 'water', 'title_sr': clean_title, 'description_sr': desc, 'region': "Beograd", 'municipalities': detect_municipalities(clean_title + " " + desc), 'start_time': s_date.replace(hour=8, minute=0), 'end_time': e_date, 'source_url': url_plan, 'hash_id': hashlib.sha256(f"water_plan:{clean_title}:{s_date.date()}".encode()).hexdigest()})
+
+                content = soup.select_one('.entry-content, main, article')
+                if content:
+                    paragraphs = content.find_all(['p', 'h3', 'h4'])
+                    current_title = None
+                    current_desc = []
+                    for p in paragraphs:
+                        txt = p.get_text(strip=True)
+                        if re.match(r'^\d{2}\.\d{2}\.\d{4}\.', txt):
+                            if current_title:
+                                desc = " ".join(current_desc)
+                                s_date, e_date = parse_dates(current_title + " " + desc)
+                                s_date = s_date or datetime.now(TZ)
+                                events.append({'category': 'water', 'title_sr': current_title, 'description_sr': desc, 'region': "Beograd", 'municipalities': detect_municipalities(current_title + " " + desc), 'start_time': s_date.replace(hour=8, minute=0), 'end_time': (e_date or s_date.replace(hour=23, minute=59)), 'source_url': url_plan, 'hash_id': hashlib.sha256(f"water_plan:{current_title}".encode()).hexdigest()})
+                            current_title = txt
+                            current_desc = []
+                        elif current_title:
+                            current_desc.append(txt)
+                    if current_title:
+                        desc = " ".join(current_desc)
+                        s_date, e_date = parse_dates(current_title + " " + desc)
+                        s_date = s_date or datetime.now(TZ)
+                        events.append({'category': 'water', 'title_sr': current_title, 'description_sr': desc, 'region': "Beograd", 'municipalities': detect_municipalities(current_title + " " + desc), 'start_time': s_date.replace(hour=8, minute=0), 'end_time': (e_date or s_date.replace(hour=23, minute=59)), 'source_url': url_plan, 'hash_id': hashlib.sha256(f"water_plan:{current_title}".encode()).hexdigest()})
+    except Exception as e:
+        logging.error(f"Error scraping planirani-radovi: {e}")
+
+    # 2. Scrape kvarovi-na-mrezi
+    url_kvarovi = "https://www.bvk.rs/kvarovi-na-mrezi/"
+    try:
+        async with session.get(url_kvarovi, headers=HEADERS, timeout=15) as resp:
+            if resp.status == 200:
+                soup = BeautifulSoup(await resp.text(), 'lxml')
+                content = soup.select_one('.entry-content, main, article')
+                if content:
+                    full_text = content.get_text(separator='\n', strip=True)
+                    now = datetime.now(TZ)
+                    today_str = now.strftime('%Y-%m-%d')
+                    events.append({
+                        'category': 'water',
+                        'title_sr': f"Кварови на мрежи: {today_str}",
+                        'description_sr': full_text[:4000],
+                        'region': "Beograd",
+                        'municipalities': detect_municipalities(full_text),
+                        'start_time': now.replace(hour=0, minute=0),
+                        'end_time': now.replace(hour=23, minute=59),
+                        'source_url': url_kvarovi,
+                        'hash_id': hashlib.sha256(f"water_kvarovi:{today_str}".encode()).hexdigest()
+                    })
+    except Exception as e:
+        logging.error(f"Error scraping kvarovi-na-mrezi: {e}")
+
     return events
 
 async def scrape_transport(session):
