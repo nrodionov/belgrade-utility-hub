@@ -287,7 +287,7 @@ async def scrape_water(session):
                     if not e_date: e_date = s_date.replace(hour=23, minute=59)
                     clean_title = t_text
                     if re.match(r'^\d{1,2}[\./\s]+\d.[\./\s]+\d{4}\.?$', t_text): clean_title = f"Водовод: Радови {t_text}"
-                    events.append({'category': 'water', 'title_sr': clean_title, 'description_sr': desc, 'region': "Beograd", 'municipalities': detect_municipalities(clean_title + " " + desc), 'start_time': s_date.replace(hour=8, minute=0), 'end_time': e_date, 'source_url': url_plan, 'hash_id': hashlib.sha256(f"water_plan:{clean_title}:{s_date.date()}".encode()).hexdigest()})
+                    events.append({'category': 'water', 'title_sr': clean_title, 'description_sr': desc, 'region': "Beograd", 'municipalities': detect_municipalities(clean_title + " " + desc), 'start_time': s_date.replace(hour=8, minute=0), 'end_time': e_date, 'source_url': url_plan, 'hash_id': hashlib.sha256(f"water_plan:{clean_title}:{s_date.date()}".encode()).hexdigest(), 'translation_status': 'pending'})
 
                 content = soup.select_one('.entry-content, main, article')
                 if content:
@@ -301,7 +301,7 @@ async def scrape_water(session):
                                 desc = " ".join(current_desc)
                                 s_date, e_date = parse_dates(current_title + " " + desc)
                                 s_date = s_date or datetime.now(TZ)
-                                events.append({'category': 'water', 'title_sr': current_title, 'description_sr': desc, 'region': "Beograd", 'municipalities': detect_municipalities(current_title + " " + desc), 'start_time': s_date.replace(hour=8, minute=0), 'end_time': (e_date or s_date.replace(hour=23, minute=59)), 'source_url': url_plan, 'hash_id': hashlib.sha256(f"water_plan:{current_title}".encode()).hexdigest()})
+                                events.append({'category': 'water', 'title_sr': current_title, 'description_sr': desc, 'region': "Beograd", 'municipalities': detect_municipalities(current_title + " " + desc), 'start_time': s_date.replace(hour=8, minute=0), 'end_time': (e_date or s_date.replace(hour=23, minute=59)), 'source_url': url_plan, 'hash_id': hashlib.sha256(f"water_plan:{current_title}".encode()).hexdigest(), 'translation_status': 'pending'})
                             current_title = txt
                             current_desc = []
                         elif current_title:
@@ -310,7 +310,7 @@ async def scrape_water(session):
                         desc = " ".join(current_desc)
                         s_date, e_date = parse_dates(current_title + " " + desc)
                         s_date = s_date or datetime.now(TZ)
-                        events.append({'category': 'water', 'title_sr': current_title, 'description_sr': desc, 'region': "Beograd", 'municipalities': detect_municipalities(current_title + " " + desc), 'start_time': s_date.replace(hour=8, minute=0), 'end_time': (e_date or s_date.replace(hour=23, minute=59)), 'source_url': url_plan, 'hash_id': hashlib.sha256(f"water_plan:{current_title}".encode()).hexdigest()})
+                        events.append({'category': 'water', 'title_sr': current_title, 'description_sr': desc, 'region': "Beograd", 'municipalities': detect_municipalities(current_title + " " + desc), 'start_time': s_date.replace(hour=8, minute=0), 'end_time': (e_date or s_date.replace(hour=23, minute=59)), 'source_url': url_plan, 'hash_id': hashlib.sha256(f"water_plan:{current_title}".encode()).hexdigest(), 'translation_status': 'pending'})
     except Exception as e:
         logging.error(f"Error scraping planirani-radovi: {e}")
 
@@ -331,14 +331,15 @@ async def scrape_water(session):
                             munis = detect_municipalities(m_part)
                             events.append({
                                 'category': 'water',
-                                'title_sr': f"Квар на водоводу: {m_part}",
-                                'description_sr': f"Општина: {m_part}\nУлице без воде: {s_part}",
+                                'title_sr': f"Kvar na vodovodu: {m_part}",
+                                'description_sr': f"Opština: {m_part}\nUlice bez vode: {s_part}",
                                 'region': "Beograd",
                                 'municipalities': munis,
                                 'start_time': now.replace(hour=8, minute=0, second=0),
                                 'end_time': now.replace(hour=23, minute=59, second=59),
                                 'source_url': url_kvarovi,
-                                'hash_id': hashlib.sha256(f"water_fault:{m_part}:{s_part[:30]}:{today_str}".encode()).hexdigest()
+                                'hash_id': hashlib.sha256(f"water_fault:{m_part}:{s_part[:30]}:{today_str}".encode()).hexdigest(),
+                                'translation_status': 'pending'
                             })
     except Exception as e:
         logging.error(f"Error scraping kvarovi-na-mrezi: {e}")
@@ -367,7 +368,8 @@ async def scrape_water(session):
                         'start_time': s_date.replace(hour=8, minute=0),
                         'end_time': e_date,
                         'source_url': url_vesti,
-                        'hash_id': hashlib.sha256(f"water_vesti:{t_text[:50]}".encode()).hexdigest()
+                        'hash_id': hashlib.sha256(f"water_vesti:{t_text[:50]}".encode()).hexdigest(),
+                        'translation_status': 'pending'
                     })
     except Exception as e:
         logging.error(f"Error scraping vesti: {e}")
