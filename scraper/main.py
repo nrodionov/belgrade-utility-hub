@@ -354,11 +354,12 @@ async def scrape_water(session):
         async with session.get(url_vesti, headers=HEADERS, timeout=15) as resp:
             if resp.status == 200:
                 soup = BeautifulSoup(await resp.text(), 'lxml')
-                for article in soup.find_all(['article', 'div', 'section'], class_=lambda c: c and ('post' in c or 'item' in c or 'blog' in c or 'textblock' in c)):
-                    h = article.find(['h2', 'h3', 'h4', 'strong', 'blockquote'])
+                for article in soup.select('article, .post, .entry, .news-item'):
+                    h = article.find(['h2', 'h3', 'h4'])
                     if not h: continue
                     t_text = h.get_text(separator=' ', strip=True)
-                    if len(t_text) < 10: continue
+                    if len(t_text) < 15 or any(ignore in t_text.lower() for ignore in ['информациј', 'сервисни центар', 'акредитациј', 'заштита података', 'доступност']):
+                        continue
                     desc = article.get_text(separator=' ', strip=True)
                     s_date, e_date = parse_dates(t_text + " " + desc)
                     s_date = s_date or datetime.now(TZ)
