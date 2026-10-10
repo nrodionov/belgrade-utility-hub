@@ -11,7 +11,11 @@ TZ = pytz.timezone("Europe/Belgrade")
 
 # Initialize Groq client
 groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
-HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"}
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Cache-Control": "no-cache",
+    "Pragma": "no-cache"
+}
 
 MUNICIPALITIES = ["Barajevo", "Čukarica", "Grocka", "Lazarevac", "Mladenovac", "Novi Beograd", "Obrenovac", "Palilula", "Rakovica", "Savski venac", "Sopot", "Stari grad", "Surčin", "Voždovac", "Vračar", "Zemun", "Zvezdara"]
 MUNICIPALITIES_SR = ["Барајево", "Чукарица", "Гроцка", "Лазаревац", "Младеновац", "Нови Београд", "Обреновац", "Палилула", "Раковица", "Савски венац", "Сопот", "Стари град", "Сурчин", "Вождовац", "Врачар", "Земун", "Звездара"]
