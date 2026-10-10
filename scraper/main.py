@@ -199,8 +199,10 @@ async def save_event(conn, event):
         munis = event.get('municipalities') or detect_municipalities(event['title_sr'] + " " + clean_sr)
         end_t = event.get('end_time')
         if not end_t:
-            if event['category'] in ['water', 'electricity', 'heating', 'ecology', 'connectivity']: end_t = event['start_time'].replace(hour=23, minute=59)
+            if event['category'] in ['water', 'electricity', 'heating', 'ecology', 'connectivity']: end_t = event['start_time'].replace(hour=23, minute=59, second=59)
             else: end_t = event['start_time'] + timedelta(days=2)
+        elif end_t.hour == 0 and end_t.minute == 0 and end_t.second == 0:
+            end_t = end_t.replace(hour=23, minute=59, second=59)
 
         row = await conn.fetchrow("SELECT id FROM events WHERE hash_id = $1", event['hash_id'])
         
