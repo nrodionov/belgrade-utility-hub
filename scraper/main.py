@@ -1,5 +1,6 @@
 import asyncio, aiohttp, asyncpg, hashlib, logging, os, pytz, re, json
 import cyrtranslit
+import httpx
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
 from groq import Groq
@@ -9,8 +10,14 @@ DB_URL = os.getenv("DATABASE_URL")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 TZ = pytz.timezone("Europe/Belgrade")
 
-# Initialize Groq client
-groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
+# Initialize Groq client with custom httpx client that bypasses proxy (trust_env=False)
+# The proxy (v.ss.ru:8888) blocks CONNECT requests to api.groq.com
+groq_client = Groq(api_key=GROQ_API_KEY, http_client=httpx.Client(trust_env=False, timeout=30)) if GROQ_API_KEY else None
+
+# Translation retry policy: max attempts per event, exponential backoff base/cap (seconds)
+MAX_TRANSLATION_ATTEMPTS = 5
+BASE_BACKOFF_SECONDS = 10
+MAX_BACKOFF_SECONDS = 3600
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
     "Cache-Control": "no-cache",
@@ -234,11 +241,11 @@ async def save_event(conn, event):
         logging.info(f"Saving new: {event['category']} - {event['title_sr'][:30]}")
         
         await conn.execute("""
-            INSERT INTO events (category, title_sr, title_sl, description_sr, description_sl, region, municipality, start_time, end_time, source_url, hash_id, translation_status, title_ru, title_en, description_ru, description_en, retry_count)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 0)
+            INSERT INTO events (category, title_sr, title_sl, description_sr, description_sl, region, municipality, start_time, end_time, source_url, hash_id, translation_status, title_ru, title_en, description_ru, description_en, attempts, next_attempt_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
         """, event['category'], event['title_sr'], to_latin(event['title_sr']), clean_sr, to_latin(clean_sr), 
            event['region'], munis if munis else None, event['start_time'], end_t, event['source_url'], event['hash_id'], t_status,
-           t_ru, t_en, d_ru, d_en)
+           t_ru, t_en, d_ru, d_en, 0, datetime.now(TZ))
     except Exception as e: logging.error(f"Save error: {e}")
 
 async def scrape_electricity(session):
@@ -628,25 +635,35 @@ async def scrape_air_quality(session):
 async def run_translator():
     conn = await asyncpg.connect(DB_URL)
     models = ["qwen/qwen3.8-27b", "openai/gpt-oss-120b"]
-    
+
     while True:
-        # Get pending events or failed events with retries < 3
-        events = await conn.fetch("SELECT id, title_sr, description_sr FROM events WHERE translation_status IN ('pending', 'failed') AND retry_count < 20 LIMIT 10")
-        
+        # Queue: pending events ready for translation OR failed events within retry budget, past their backoff time
+        events = await conn.fetch("""
+            SELECT id, title_sr, description_sr, attempts
+            FROM events
+            WHERE translation_status IN ('pending', 'failed')
+              AND next_attempt_at IS NOT NULL AND next_attempt_at <= now()
+              AND attempts < $1
+            ORDER BY created_at ASC
+            LIMIT 10
+        """, MAX_TRANSLATION_ATTEMPTS)
+
         for e in events:
             if len(e['description_sr'] or "") > 10000:
                 logging.info(f"Skipping translation for event {e['id']} due to length (>10000 chars)")
-                await conn.execute("UPDATE events SET title_ru=$1, title_en=$2, description_ru=$3, description_en=$4, translation_status='success' WHERE id=$5", e['title_sr'], e['title_sr'], e['description_sr'], e['description_sr'], e['id'])
+                await conn.execute("UPDATE events SET title_ru=$1, title_en=$2, description_ru=$3, description_en=$4, translation_status='success', attempts=0, next_attempt_at=NULL WHERE id=$5", e['title_sr'], e['title_sr'], e['description_sr'], e['description_sr'], e['id'])
                 continue
             logging.info(f"Translating event {e['id']}")
+            await conn.execute("UPDATE events SET translation_status='processing' WHERE id=$1", e['id'])
             success = False
-            
+            last_err = None
+
             for model in models:
                 try:
                     t_ru, t_en, d_ru, d_en = await translate_event(e['title_sr'], e['description_sr'], model=model)
-                    
+
                     if t_ru and t_en and d_ru and d_en:
-                        await conn.execute("UPDATE events SET title_ru=$1, title_en=$2, description_ru=$3, description_en=$4, translation_status='success', retry_count=retry_count+1 WHERE id=$5", t_ru, t_en, d_ru, d_en, e['id'])
+                        await conn.execute("UPDATE events SET title_ru=$1, title_en=$2, description_ru=$3, description_en=$4, translation_status='success', attempts=0, next_attempt_at=NULL, last_error=NULL WHERE id=$5", t_ru, t_en, d_ru, d_en, e['id'])
                         logging.info(f"Success with model {model} for event {e['id']}")
                         success = True
                         break # Exit model loop on success
@@ -654,19 +671,21 @@ async def run_translator():
                         raise Exception("Empty translation")
                 except Exception as ex:
                     err_msg = str(ex)
-                    if "429" in err_msg or "rate_limit" in err_msg:
-                        logging.warning(f"Model {model} rate limited (429), pausing for 120 seconds to allow Groq to recover...")
-                        await asyncio.sleep(120)
-                        continue # Try next model
+                    if "429" in err_msg or "rate_limit" in err_msg.lower():
+                        logging.warning(f"Model {model} rate limited (429) for event {e['id']}, will back off")
                     else:
-                        logging.error(f"Translation error with {model}: {ex}")
-            
+                        logging.error(f"Translation error with {model} for event {e['id']}: {ex}")
+                    last_err = f"{model}: {err_msg}"
+
+            attempts_after = (e['attempts'] or 0) + 1
             if not success:
-                await conn.execute("UPDATE events SET translation_status='failed', retry_count=retry_count+1 WHERE id=$1", e['id'])
-                logging.info(f"Could not translate event {e['id']} with any model currently, will retry next cycle.")
-            
+                delay = min(BASE_BACKOFF_SECONDS * (2 ** max(attempts_after - 1, 0)), MAX_BACKOFF_SECONDS)
+                next_attempt = datetime.now(TZ) + timedelta(seconds=delay)
+                await conn.execute("UPDATE events SET translation_status='failed', attempts=$1, last_error=$2, next_attempt_at=$3 WHERE id=$4", attempts_after, last_err, next_attempt, e['id'])
+                logging.info(f"Could not translate event {e['id']} with any model, attempts={attempts_after}, next attempt in {delay:.0f}s")
+
             await asyncio.sleep(30)
-        
+
         await asyncio.sleep(60) # 1 minute interval
 
 async def run_scraper():

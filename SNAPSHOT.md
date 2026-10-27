@@ -1,6 +1,7 @@
 # Belgrade Utility Hub - System Snapshot (2026-09-19)
 
 ## Current Status
+Both production (`https://bg.ss.ru`) and development (`https://hm.ss.ru`) environments run on the same server `hm.ss.ru` (accessible directly via `ssh hm.ss.ru` without additional workarounds).
 - **Production (bg.ss.ru)**: Stable. Running from `/root/selfcheck/belgrade_bg`.
 - **Development (hm.ss.ru)**: Stable. Running from `/root/selfcheck/belgrade_hm`.
 

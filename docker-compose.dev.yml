@@ -8,9 +8,16 @@ services:
 
   scraper:
     container_name: belgrade_scraper_hm
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 512M
 
   web:
     container_name: belgrade_web_hm
+    ports:
+      - "127.0.0.1:8002:8000"
 
 volumes:
   db_data_hm:
